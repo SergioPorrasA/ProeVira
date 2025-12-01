@@ -284,7 +284,7 @@ def main():
     predictor = PredictorDengue()
     
     # Especificar la ruta del archivo CSV
-    ruta_csv = r"C:\Users\sergi\OneDrive\Desktop\datos_dengue.csv"
+    ruta_csv = r"c:/GDPS-PROEVIRA/ProeVira/modelo/datos_dengue.csv"  # Cambiar a la ruta correcta del archivo CSV
     
     try:
         # Ejecutar analisis completo
