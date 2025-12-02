@@ -21,7 +21,8 @@ const Sidebar = () => {
   const menuItems = [
     { path: '/dashboard', icon: 'dashboard', label: 'Dashboard' },
     { path: '/analisis', icon: 'analytics', label: 'Análisis de Datos' },
-    { path: '/modelos', icon: 'psychology', label: 'Modelos Predictivos' },
+    { path: '/modelos', icon: 'psychology', label: 'Predicción Rápida' },
+    { path: '/prediccion-avanzada', icon: 'query_stats', label: 'Predicción Avanzada' },
     { path: '/reportes', icon: 'description', label: 'Reportes' },
     { path: '/configuracion', icon: 'settings', label: 'Configuración' }
   ];
