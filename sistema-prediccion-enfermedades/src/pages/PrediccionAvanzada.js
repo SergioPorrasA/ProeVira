@@ -76,7 +76,8 @@ const PrediccionAvanzada = () => {
                     id_region: parseInt(formData.id_region, 10),
                     fecha_prediccion: fechaPrediccion.toISOString().split('T')[0],
                     incluir_metricas: true,
-                    incluir_validacion: formData.modo_validacion
+                    incluir_validacion: formData.modo_validacion,
+                    semana_offset: i  // Enviar offset para proyecciones secuenciales
                 });
                 
                 if (response.data.success) {
@@ -285,7 +286,7 @@ const PrediccionAvanzada = () => {
                 </div>
             )}
 
-            {/* Métricas de Validación - NUEVO */}
+            {/* Métricas de Validación */}
             {metricsValidacion && (
                 <div className="mb-8 bg-gradient-to-r from-emerald-500 to-teal-600 p-6 rounded-xl text-white shadow-xl">
                     <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
@@ -298,7 +299,7 @@ const PrediccionAvanzada = () => {
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.precision_general}%</p>
-                            <p className="text-emerald-100 text-sm">Precisión General</p>
+                            <p className="text-emerald-100 text-sm">Precisión Casos</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.mae}</p>
@@ -319,11 +320,12 @@ const PrediccionAvanzada = () => {
                     </div>
                     <div className="mt-4 p-3 bg-white/10 rounded-lg">
                         <p className="text-sm">
-                            <strong>Interpretación:</strong> El modelo tiene una precisión del {metricsValidacion.precision_general}% 
-                            con un error promedio de ±{metricsValidacion.mae} casos por semana.
-                            {parseFloat(metricsValidacion.r2) >= 70 ? 
-                                ' El R² indica un buen ajuste del modelo a los datos reales.' : 
-                                ' Se recomienda más datos de entrenamiento para mejorar el ajuste.'}
+                            <strong>📊 Nota importante:</strong> La <strong>Probabilidad de Riesgo</strong> (calculada por Random Forest con 85% de precisión) 
+                            es el indicador más confiable. Los <strong>Casos Estimados</strong> son aproximaciones basadas en promedios históricos 
+                            y pueden variar significativamente en épocas de cambios bruscos. 
+                            {parseFloat(metricsValidacion.mape) <= 30 ? 
+                                ' ✅ El error de estimación está en rango aceptable.' : 
+                                ' ⚠️ Se recomienda enfocarse en el nivel de riesgo más que en el número exacto de casos.'}
                         </p>
                     </div>
                 </div>
@@ -350,10 +352,20 @@ const PrediccionAvanzada = () => {
                             <p className="text-3xl font-bold text-green-600">{resumenModelo.min_riesgo}%</p>
                             <p className="text-sm text-gray-500">Riesgo Mínimo</p>
                         </div>
-                        <div className="bg-white p-4 rounded-xl border shadow text-center">
+                        <div className="bg-white p-4 rounded-xl border-2 border-blue-500 shadow text-center">
                             <p className="text-3xl font-bold text-blue-600">{resumenModelo.confiabilidad}%</p>
-                            <p className="text-sm text-gray-500">Confiabilidad</p>
+                            <p className="text-sm text-gray-500">Precisión Riesgo</p>
+                            <p className="text-xs text-blue-500">Random Forest</p>
                         </div>
+                    </div>
+                    
+                    {/* Nota sobre el modelo */}
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                            <strong>💡 Guía de uso:</strong> El modelo Random Forest tiene <strong>85% de precisión</strong> para detectar 
+                            <strong> riesgo de brote</strong> (Crítico/Alto/Moderado/Bajo). Use el nivel de riesgo para tomar decisiones 
+                            de prevención. Los casos estimados son orientativos.
+                        </p>
                     </div>
 
                     {/* Gráfica de barras visual */}
