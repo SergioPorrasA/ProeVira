@@ -1226,7 +1226,7 @@ def get_estadisticas_datos():
     """Obtiene estadÃ­sticas generales de los datos cargados"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         cursor = conn.cursor(dictionary=True)
@@ -1283,11 +1283,11 @@ def get_estadisticas_datos():
 def procesar_csv_preview():
     """Procesa un archivo CSV y devuelve preview sin guardar en BD"""
     if 'archivo' not in request.files:
-        return jsonify({'error': 'No se enviÃ³ ningÃºn archivo'}), 400
+        return jsonify({'error': 'No se envió ningun archivo'}), 400
     
     archivo = request.files['archivo']
     if archivo.filename == '':
-        return jsonify({'error': 'Nombre de archivo vacÃ­o'}), 400
+        return jsonify({'error': 'Nombre de archivo vacío'}), 400
     
     if not archivo.filename.endswith('.csv'):
         return jsonify({'error': 'Solo se permiten archivos CSV'}), 400
@@ -1394,7 +1394,7 @@ def cargar_csv():
     
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n a base de datos'}), 500
+        return jsonify({'error': 'Error de conexión a base de datos'}), 500
     
     cursor = None
     try:
@@ -1507,10 +1507,10 @@ def cargar_csv():
 
 @app.route('/api/datos/limpiar', methods=['DELETE'])
 def limpiar_datos():
-    """Elimina todos los datos epidemiolÃ³gicos (usar con precauciÃ³n)"""
+    """Elimina todos los datos epidemiológicos (usar con precaución)"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         cursor = conn.cursor()
@@ -1771,17 +1771,17 @@ def generar_alertas_automaticas():
             
             # Determinar nivel de riesgo
             if probabilidad >= 75:
-                nivel = 'CrÃ­tico'
-                mensaje = f'ALERTA CRÃTICA: {nombre} presenta un riesgo muy alto de brote de dengue.'
-                recomendaciones = 'Activar protocolos de emergencia. Intensificar fumigaciÃ³n. Desplegar brigadas de salud. Comunicar a la poblaciÃ³n.'
+                nivel = 'Crítico'
+                mensaje = f'ALERTA CRÍTICA: {nombre} presenta un riesgo muy alto de brote de dengue.'
+                recomendaciones = 'Activar protocolos de emergencia. Intensificar fumigación. Desplegar brigadas de salud. Comunicar a la población.'
             elif probabilidad >= 50:
                 nivel = 'Alto'
                 mensaje = f'ADVERTENCIA: {nombre} presenta riesgo elevado de brote de dengue.'
-                recomendaciones = 'Aumentar vigilancia epidemiolÃ³gica. Iniciar campaÃ±as de descacharrizaciÃ³n. Preparar recursos mÃ©dicos.'
+                recomendaciones = 'Aumentar vigilancia epidemiológica. Iniciar campañas de descacharrización. Preparar recursos médicos.'
             elif probabilidad >= 25:
                 nivel = 'Moderado'
-                mensaje = f'PRECAUCIÃ“N: {nombre} muestra indicadores de riesgo moderado.'
-                recomendaciones = 'Mantener vigilancia activa. Reforzar educaciÃ³n comunitaria sobre prevenciÃ³n.'
+                mensaje = f'PRECAUCIÓN: {nombre} muestra indicadores de riesgo moderado.'
+                recomendaciones = 'Mantener vigilancia activa. Reforzar educación comunitaria sobre prevención.'
             else:
                 nivel = 'Bajo'
                 mensaje = f'{nombre}: Riesgo bajo de brote.'
@@ -1844,10 +1844,10 @@ def generar_alertas_automaticas():
 
 @app.route('/api/alertas/enviar', methods=['POST'])
 def enviar_alerta():
-    """EnvÃ­a una alerta a una entidad federativa y la guarda en BD"""
+    """Envía una alerta a una entidad federativa y la guarda en BD"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         data = request.get_json()
@@ -1895,10 +1895,10 @@ def enviar_alerta():
 
 @app.route('/api/alertas/enviar-masivo', methods=['POST'])
 def enviar_alertas_masivo():
-    """EnvÃ­a mÃºltiples alertas"""
+    """Envía múltiples alertas"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         data = request.get_json()
@@ -1992,7 +1992,7 @@ def get_historial_alertas():
     """Obtiene el historial de alertas"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         cursor = conn.cursor(dictionary=True)
@@ -2030,7 +2030,7 @@ def resolver_alerta(alerta_id):
     """Marca una alerta como resuelta"""
     conn = get_db_connection()
     if not conn:
-        return jsonify({'error': 'Error de conexiÃ³n'}), 500
+        return jsonify({'error': 'Error de conexión'}), 500
     
     try:
         data = request.get_json() or {}
@@ -2080,7 +2080,7 @@ def entrenar_modelo():
         if not tipo_modelo or not archivo_csv:
             return jsonify({
                 'success': False,
-                'error': 'Faltan parÃ¡metros: tipo_modelo y archivo_csv son requeridos'
+                'error': 'Faltan parámetros: tipo_modelo y archivo_csv son requeridos'
             }), 400
         
         # Buscar el archivo CSV
@@ -2105,7 +2105,7 @@ def entrenar_modelo():
         
         # Cargar datos
         df = pd.read_csv(csv_path)
-        print(f"ðŸ“Š Datos cargados: {len(df)} registros, {len(df.columns)} columnas")
+        print(f"📊 Datos cargados: {len(df)} registros, {len(df.columns)} columnas")
         
         if tipo_modelo == 'clasificador':
             # Entrenar modelo clasificador
@@ -2116,7 +2116,7 @@ def entrenar_modelo():
                 le_entidad = LabelEncoder()
                 df['ENTIDAD_CODED'] = le_entidad.fit_transform(df['ENTIDAD_FED'])
                 LABEL_ENCODER = le_entidad
-                print(f"âœ… LabelEncoder creado con {len(le_entidad.classes_)} estados")
+                print(f"✔️ LabelEncoder creado con {len(le_entidad.classes_)} estados")
             
             # Verificar target
             if 'NIVEL_RIESGO' in df.columns:
@@ -2136,7 +2136,7 @@ def entrenar_modelo():
             )
             
             # Entrenar modelo
-            print("ðŸ¤– Entrenando Random Forest Clasificador...")
+            print("🧖 Entrenando Random Forest Clasificador...")
             modelo = RandomForestClassifier(
                 n_estimators=100,
                 max_depth=15,
@@ -2163,7 +2163,7 @@ def entrenar_modelo():
             # Actualizar variable global
             MODELO_DENGUE = modelo
             
-            print(f"âœ… Modelo clasificador entrenado y guardado")
+            print(f"✔️ Modelo clasificador entrenado y guardado")
             print(f"   - Accuracy: {accuracy:.4f}")
             print(f"   - Precision: {precision:.4f}")
             print(f"   - Recall: {recall:.4f}")
@@ -2214,7 +2214,7 @@ def entrenar_modelo():
             )
             
             # Entrenar modelo
-            print("ðŸ¤– Entrenando Random Forest Regresor...")
+            print("🧖 Entrenando Random Forest Regresor...")
             modelo = RandomForestRegressor(
                 n_estimators=100,
                 max_depth=15,
@@ -2243,8 +2243,8 @@ def entrenar_modelo():
             MODELO_REGRESSOR = modelo
             REGRESSOR_FEATURES = feature_cols
             
-            print(f"âœ… Modelo regresor entrenado y guardado")
-            print(f"   - RÂ²: {r2:.4f}")
+            print(f"✔️ Modelo regresor entrenado y guardado")
+            print(f"   - R²: {r2:.4f}")
             print(f"   - MAE: {mae:.2f}")
             
             return jsonify({
@@ -2282,7 +2282,7 @@ def entrenar_modelo():
 
 @app.route('/api/modelos/info', methods=['GET'])
 def get_modelos_info():
-    """Obtiene informaciÃ³n sobre los modelos cargados y archivos CSV disponibles"""
+    """Obtiene información sobre los modelos cargados y archivos CSV disponibles"""
     
     modelos_info = {
         'clasificador': {
