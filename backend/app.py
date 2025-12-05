@@ -22,7 +22,7 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_CONFIG = {
     'user': 'root',
-    'password': 'admin',
+    'password': '1234567',
     'host': '127.0.0.1',
     'database': 'proyecto_integrador',
     'pool_name': 'flask_pool',

@@ -27,7 +27,7 @@ app.use(fileUpload({
 const pool = mysql.createPool({
   host: 'localhost',
   user: 'root',
-  password: 'admin', // Tu contraseña de MySQL
+  password: '1234567', // Tu contraseña de MySQL
   database: 'proyecto_integrador',
   waitForConnections: true,
   connectionLimit: 10,
