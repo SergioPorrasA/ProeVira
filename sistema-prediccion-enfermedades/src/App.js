@@ -8,16 +8,15 @@ import Sidebar from './components/layout/Sidebar';
 
 // Pages
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Analisis from './pages/Analisis';
 import ModelosPredictivos from './pages/ModelosPredictivos';
 import Reportes from './pages/Reportes';
 import Configuracion from './pages/Configuracion';
 import Alertas from './pages/Alertas';
-// import Formulario de Riesgo de Brote (si es necesario en alguna ruta)
 import RiesgoBroteForm from './pages/RiesgoBroteForm';
 import PrediccionAvanzada from './pages/PrediccionAvanzada';
 import DashboardPredicciones from './pages/DashboardPredicciones';
+import MonitoreoTiempoReal from './pages/MonitoreoTiempoReal';
+import EntrenamientoModelos from './pages/EntrenamientoModelos';
 
 // Componente para rutas protegidas
 const ProtectedRoute = ({ children }) => {
@@ -46,13 +45,12 @@ function App() {
                 <div className="flex h-screen bg-[#f8f9fb]">
                   <Sidebar />
                   <Routes>
-                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/analisis" element={<Analisis />} />
-                    {/* <Route path="/modelos" element={<ModelosPredictivos />} /> */}
+                    <Route path="/" element={<Navigate to="/prediccion-avanzada" replace />} />
                     <Route path="/modelos" element={<RiesgoBroteForm />} />
                     <Route path="/prediccion-avanzada" element={<PrediccionAvanzada />} />
                     <Route path="/dashboard-predicciones" element={<DashboardPredicciones />} />
+                    <Route path="/monitoreo" element={<MonitoreoTiempoReal />} />
+                    <Route path="/entrenar-modelos" element={<EntrenamientoModelos />} />
                     <Route path="/reportes" element={<Reportes />} />
                     <Route path="/alertas" element={<Alertas />} />
                     <Route path="/configuracion" element={<Configuracion />} />

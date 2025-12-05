@@ -1,0 +1,55 @@
+# Entornos virtuales Python
+.venv/
+venv/
+ENV/
+
+# Node modules
+sistema-prediccion-enfermedades/node_modules/
+
+# Variables de entorno
+.env
+.env.local
+backend/.env
+
+# Bases de datos locales
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+temp/
+tmp/
+
+# Uploads
+sistema-prediccion-enfermedades/uploads/**/*.csv
+sistema-prediccion-enfermedades/uploads/**/*.xls
+sistema-prediccion-enfermedades/uploads/**/*.xlsx
+
+# Build frontend
+sistema-prediccion-enfermedades/build/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Coverage
+sistema-prediccion-enfermedades/coverage/
+
+# Modelos ML grandes (opcional)
+# backend/*.pkl
+# backend/*.h5

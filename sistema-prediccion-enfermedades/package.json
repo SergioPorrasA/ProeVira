@@ -28,6 +28,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:unit": "react-scripts test --watchAll=false --testPathPattern=src/__tests__/unit",
+    "test:integration": "react-scripts test --watchAll=false --testPathPattern=src/__tests__/integration",
     "eject": "react-scripts eject",
     "backend": "node backend/server.js",
     "dev": "concurrently \"npm run backend\" \"npm start\""

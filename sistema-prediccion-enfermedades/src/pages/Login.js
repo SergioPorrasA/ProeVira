@@ -96,7 +96,7 @@ const Login = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div>
-              <label className="block text-sm font-semibold text-text-main mb-2">
+              <label htmlFor="email" className="block text-sm font-semibold text-text-main mb-2">
                 Correo Electrónico
               </label>
               <div className="relative">
@@ -104,6 +104,7 @@ const Login = () => {
                   mail
                 </span>
                 <input
+                  id="email"
                   type="email"
                   name="email"
                   value={formData.email}
@@ -117,7 +118,7 @@ const Login = () => {
 
             {/* Contraseña */}
             <div>
-              <label className="block text-sm font-semibold text-text-main mb-2">
+              <label htmlFor="contrasena" className="block text-sm font-semibold text-text-main mb-2">
                 Contraseña
               </label>
               <div className="relative">
@@ -125,6 +126,7 @@ const Login = () => {
                   lock
                 </span>
                 <input
+                  id="contrasena"
                   type="password"
                   name="contrasena"
                   value={formData.contrasena}
