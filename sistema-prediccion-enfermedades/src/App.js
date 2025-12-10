@@ -21,11 +21,11 @@ import EntrenamientoModelos from './pages/EntrenamientoModelos';
 // Componente para rutas protegidas
 const ProtectedRoute = ({ children }) => {
   const usuario = localStorage.getItem('usuario');
-  
+
   if (!usuario) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return children;
 };
 
@@ -42,19 +42,21 @@ function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <div className="flex h-screen bg-[#f8f9fb]">
+                <div className="flex h-screen bg-[#f8f9fb] overflow-hidden">
                   <Sidebar />
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/prediccion-avanzada" replace />} />
-                    <Route path="/modelos" element={<RiesgoBroteForm />} />
-                    <Route path="/prediccion-avanzada" element={<PrediccionAvanzada />} />
-                    <Route path="/dashboard-predicciones" element={<DashboardPredicciones />} />
-                    <Route path="/monitoreo" element={<MonitoreoTiempoReal />} />
-                    <Route path="/entrenar-modelos" element={<EntrenamientoModelos />} />
-                    <Route path="/reportes" element={<Reportes />} />
-                    <Route path="/alertas" element={<Alertas />} />
-                    <Route path="/configuracion" element={<Configuracion />} />
-                  </Routes>
+                  <main className="flex-1 overflow-y-auto">
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/prediccion-avanzada" replace />} />
+                      <Route path="/modelos" element={<RiesgoBroteForm />} />
+                      <Route path="/prediccion-avanzada" element={<PrediccionAvanzada />} />
+                      <Route path="/dashboard-predicciones" element={<DashboardPredicciones />} />
+                      <Route path="/monitoreo" element={<MonitoreoTiempoReal />} />
+                      <Route path="/entrenar-modelos" element={<EntrenamientoModelos />} />
+                      <Route path="/reportes" element={<Reportes />} />
+                      <Route path="/alertas" element={<Alertas />} />
+                      <Route path="/configuracion" element={<Configuracion />} />
+                    </Routes>
+                  </main>
                 </div>
               </ProtectedRoute>
             }
