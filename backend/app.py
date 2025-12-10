@@ -25,10 +25,10 @@ CORS(app)
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_CONFIG = {
-    'user': 'root',
-    'password': 'admin',
-    'host': '127.0.0.1',
-    'database': 'proyecto_integrador',
+    'host': os.getenv('DB_HOST', '127.0.0.1'),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'proyecto_integrador'),
     'pool_name': 'flask_pool',
     'pool_size': int(os.getenv('DB_POOL_SIZE', 5))
 }
@@ -70,7 +70,7 @@ REGRESSOR_FEATURES = None
 try:
     model_path = os.path.join(BACKEND_DIR, 'model.pkl')
     encoder_path = os.path.join(BACKEND_DIR, 'label_encoder.pkl')
-    
+
     MODELO_DENGUE = joblib.load(model_path)
     LABEL_ENCODER = joblib.load(encoder_path)
     print("✔ Modelo Random Forest (Clasificador) cargado")
@@ -83,7 +83,7 @@ try:
     regressor_path = os.path.join(BACKEND_DIR, 'model_regressor.pkl')
     features_path = os.path.join(BACKEND_DIR, 'regressor_features.pkl')
     encoder_reg_path = os.path.join(BACKEND_DIR, 'label_encoder_regressor.pkl')
-    
+
     if os.path.exists(regressor_path):
         MODELO_REGRESSOR = joblib.load(regressor_path)
         REGRESSOR_FEATURES = joblib.load(features_path)
@@ -111,40 +111,40 @@ def predecir_riesgo():
     Predice el riesgo de brote usando el modelo Random Forest.
     Solo requiere id_region. Los datos se obtienen automaticamente de MySQL.
     """
-    
+
     # Verificar que los modelos estÃ©n cargados
     if MODELO_DENGUE is None or LABEL_ENCODER is None:
         return jsonify({
             'success': False,
             'error': 'Modelos ML no disponibles. Verifica que model.pkl y label_encoder.pkl existan.'
         }), 503
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'success': False, 'error': 'Error de conexión a la base de datos'}), 500
-    
+
     try:
         data = request.get_json(force=True)
         id_region = int(data.get('id_region', 0))
-        
+
         if not id_region or id_region < 1 or id_region > 32:
             return jsonify({'success': False, 'error': 'id_region invalido (debe ser 1-32)'}), 400
-        
+
         cursor = conn.cursor(dictionary=True)
-        
+
         # 1. Obtener informaciÃ³n de la regiÃ³n
         cursor.execute(
             'SELECT id_region, nombre, poblacion FROM region WHERE id_region = %s',
             (id_region,)
         )
         region = cursor.fetchone()
-        
+
         if not region:
             return jsonify({'success': False, 'error': 'Región no encontrada'}), 404
-        
+
         poblacion = region['poblacion'] or 100000
         nombre_estado = region['nombre']
-        
+
         # 2. Obtener última fecha con datos
         cursor.execute(
             'SELECT MAX(fecha_fin_semana) as ultima_fecha FROM dato_epidemiologico WHERE id_region = %s',
@@ -152,13 +152,13 @@ def predecir_riesgo():
         )
         result = cursor.fetchone()
         ultima_fecha = result['ultima_fecha']
-        
+
         if not ultima_fecha:
             return jsonify({
                 'success': False,
                 'error': f'No hay datos históricos para {nombre_estado}'
             }), 404
-        
+
         # 3. Obtener casos de la última semana (lag 1 semana)
         cursor.execute('''
             SELECT COALESCE(SUM(casos_confirmados), 0) as total
@@ -167,7 +167,7 @@ def predecir_riesgo():
               AND fecha_fin_semana BETWEEN DATE_SUB(%s, INTERVAL 7 DAY) AND %s
         ''', (id_region, ultima_fecha, ultima_fecha))
         casos_lag_1w = int(cursor.fetchone()['total'] or 0)
-        
+
         # 4. Obtener casos de hace 4 semanas (lag 4 semanas)
         cursor.execute('''
             SELECT COALESCE(SUM(casos_confirmados), 0) as total
@@ -176,24 +176,24 @@ def predecir_riesgo():
               AND fecha_fin_semana BETWEEN DATE_SUB(%s, INTERVAL 28 DAY) AND DATE_SUB(%s, INTERVAL 21 DAY)
         ''', (id_region, ultima_fecha, ultima_fecha))
         casos_lag_4w = int(cursor.fetchone()['total'] or 0)
-        
+
         # 5. Calcular tasas de incidencia (por 100,000 habitantes)
         ti_lag_1w = (casos_lag_1w / poblacion) * 100000
         ti_lag_4w = (casos_lag_4w / poblacion) * 100000
-        
+
         # 6. Obtener semana y mes
         semana_del_anio = ultima_fecha.isocalendar()[1]
         mes = ultima_fecha.month
-        
+
         # 7. Codificar el estado para el modelo
         nombre_para_encoder = ESTADO_POR_ID.get(id_region, nombre_estado)
-        
+
         try:
             entidad_coded = LABEL_ENCODER.transform([nombre_para_encoder])[0]
         except ValueError:
             print(f"⚠️ Estado '{nombre_para_encoder}' no en encoder, usando índice")
             entidad_coded = id_region - 1
-        
+
         # 8. Crear DataFrame para predicción
         X_predict = pd.DataFrame({
             'TI_LAG_1W': [ti_lag_1w],
@@ -204,16 +204,16 @@ def predecir_riesgo():
             'MES': [mes],
             'ENTIDAD_CODED': [entidad_coded]
         })
-        
+
         print(f"📊 Predicción RF para {nombre_estado}: casos={casos_lag_1w}, TI={ti_lag_1w:.2f}")
-        
+
         # 9. PREDICCIÓN CON RANDOM FOREST
         prediction_proba = MODELO_DENGUE.predict_proba(X_predict)[0][1]
         prediction_class = MODELO_DENGUE.predict(X_predict)[0]
-        
+
         riesgo_probabilidad = round(prediction_proba * 100, 1)
         riesgo_clase = int(prediction_class)
-        
+
         # 10. Determinar nivel, mensaje y recomendaciones
         if riesgo_probabilidad >= 75:
             nivel_riesgo = 'Crítico'
@@ -235,11 +235,11 @@ def predecir_riesgo():
             'Bajo': 'Continuar con las acciones preventivas habituales.'
         }
         recomendaciones = recomendaciones_map.get(nivel_riesgo, 'Mantener vigilancia según lineamientos locales.')
-        
+
         # 11. Calcular tendencias
         tendencia_casos = casos_lag_1w - casos_lag_4w
         tendencia_tasa = ti_lag_1w - ti_lag_4w
-        
+
         # 12. PredicciÃ³n prÃ³xima semana
         cursor.execute('''
             SELECT AVG(casos_confirmados) as promedio
@@ -248,7 +248,7 @@ def predecir_riesgo():
         ''', (id_region, ultima_fecha))
         promedio_result = cursor.fetchone()
         prediccion_prox_semana = int(promedio_result['promedio'] or casos_lag_1w)
-        
+
         # 13. Guardar alerta si es riesgo alto
         if riesgo_clase == 1:
             try:
@@ -302,7 +302,7 @@ def predecir_riesgo():
                 'historial_semanas': 4
             }
         })
-        
+
     except Exception as e:
         print(f"âŒ Error en predicciÃ³n: {e}")
         import traceback
@@ -322,45 +322,45 @@ def predecir_riesgo_avanzado():
     Predicción avanzada con fecha específica.
     Permite evaluar fechas históricas y proyectar hacia el futuro.
     """
-    
+
     if MODELO_DENGUE is None or LABEL_ENCODER is None:
         return jsonify({
             'success': False,
             'error': 'Modelos ML no disponibles.'
         }), 503
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'success': False, 'error': 'Error de conexión a la base de datos'}), 500
-    
+
     try:
         data = request.get_json(force=True)
         id_region = int(data.get('id_region', 0))
         fecha_prediccion = data.get('fecha_prediccion')
         incluir_metricas = data.get('incluir_metricas', False)
         semana_offset = int(data.get('semana_offset', 0))  # Offset para proyecciones futuras
-        
+
         if not id_region or id_region < 1 or id_region > 32:
             return jsonify({'success': False, 'error': 'id_region invalido'}), 400
-        
+
         if not fecha_prediccion:
             return jsonify({'success': False, 'error': 'fecha_prediccion requerida'}), 400
-        
+
         cursor = conn.cursor(dictionary=True)
-        
+
         # 1. Obtener informaciÃ³n de la regiÃ³n
         cursor.execute(
             'SELECT id_region, nombre, poblacion FROM region WHERE id_region = %s',
             (id_region,)
         )
         region = cursor.fetchone()
-        
+
         if not region:
             return jsonify({'success': False, 'error': 'Región no encontrada'}), 404
-        
+
         poblacion = region['poblacion'] or 100000
         nombre_estado = region['nombre']
-        
+
         # 2. Obtener última fecha disponible en la BD
         cursor.execute('''
             SELECT MAX(fecha_fin_semana) as ultima_fecha
@@ -368,25 +368,25 @@ def predecir_riesgo_avanzado():
             WHERE id_region = %s
         ''', (id_region,))
         ultima_fecha_disponible = cursor.fetchone()['ultima_fecha']
-        
+
         if not ultima_fecha_disponible:
             return jsonify({
                 'success': False,
                 'error': f'No hay datos para {nombre_estado}'
             }), 404
-        
+
         # Fecha solicitada como datetime
         fecha_dt = datetime.strptime(fecha_prediccion, '%Y-%m-%d')
-        
+
         # 3. Determinar si es fecha histÃ³rica o futura
         es_fecha_futura = fecha_dt.date() > ultima_fecha_disponible
         semanas_futuras = 0
-        
+
         if es_fecha_futura:
             # Calcular cuantas semanas en el futuro
             dias_diferencia = (fecha_dt.date() - ultima_fecha_disponible).days
             semanas_futuras = max(0, dias_diferencia // 7)
-        
+
         # 4. Obtener datos base (de la última semana disponible o semana específica)
         if es_fecha_futura:
             fecha_datos = ultima_fecha_disponible
@@ -400,7 +400,7 @@ def predecir_riesgo_avanzado():
             ''', (id_region, fecha_prediccion))
             result = cursor.fetchone()
             fecha_datos = result['fecha_fin_semana'] if result else ultima_fecha_disponible
-        
+
         # 5. Obtener datos histÃ³ricos para features del modelo de regresiÃ³n
         cursor.execute('''
             SELECT casos_confirmados, tasa_incidencia, fecha_fin_semana
@@ -410,17 +410,17 @@ def predecir_riesgo_avanzado():
             LIMIT 6
         ''', (id_region, fecha_prediccion))
         datos_anteriores = cursor.fetchall()
-        
+
         if not datos_anteriores or len(datos_anteriores) < 4:
             return jsonify({
                 'success': False,
                 'error': f'No hay suficientes datos históricos para {nombre_estado}'
             }), 404
-        
+
         # Extraer valores
         casos_hist = [int(d['casos_confirmados']) for d in datos_anteriores]
         ti_hist = [float(d['tasa_incidencia']) for d in datos_anteriores]
-        
+
         casos_lag_1w = casos_hist[0] if len(casos_hist) > 0 else 0
         casos_lag_2w = casos_hist[1] if len(casos_hist) > 1 else casos_lag_1w
         casos_lag_3w = casos_hist[2] if len(casos_hist) > 2 else casos_lag_1w
@@ -428,14 +428,14 @@ def predecir_riesgo_avanzado():
         ti_lag_1w = ti_hist[0] if len(ti_hist) > 0 else 0
         ti_lag_2w = ti_hist[1] if len(ti_hist) > 1 else ti_lag_1w
         ti_lag_4w = ti_hist[3] if len(ti_hist) > 3 else ti_lag_1w
-        
+
         # Calcular features adicionales
         casos_promedio_4w = sum(casos_hist[:4]) / min(4, len(casos_hist))
         tendencia_4w = casos_lag_1w - casos_lag_4w
-        
+
         semana_del_anio = fecha_dt.isocalendar()[1]
         mes = fecha_dt.month
-        
+
         # 6. USAR MODELO DE REGRESIÃ“N SI ESTÃ DISPONIBLE
         if MODELO_REGRESSOR is not None:
             try:
@@ -443,7 +443,7 @@ def predecir_riesgo_avanzado():
                 estado_coded = LABEL_ENCODER_REG.transform([nombre_estado])[0]
             except:
                 estado_coded = id_region - 1
-            
+
             # Crear DataFrame con features
             X_reg = pd.DataFrame({
                 'casos_lag_1w': [casos_lag_1w],
@@ -458,7 +458,7 @@ def predecir_riesgo_avanzado():
                 'mes': [mes],
                 'estado_coded': [estado_coded]
             })
-            
+
             # PredicciÃ³n con modelo de regresiÃ³n (RÂ²=96.3%)
             casos_prediccion = int(max(0, MODELO_REGRESSOR.predict(X_reg)[0]))
             modelo_usado = 'Random Forest Regressor (RÂ²=96.3%)'
@@ -467,18 +467,18 @@ def predecir_riesgo_avanzado():
             pesos = [0.4, 0.3, 0.2, 0.1]
             casos_prediccion = int(sum(c * p for c, p in zip(casos_hist[:4], pesos)))
             modelo_usado = 'Promedio Ponderado'
-        
+
         # 7. Calcular tasas para el modelo de clasificaciÃ³n RF
         ti_lag_1w_calc = (casos_lag_1w / poblacion) * 100000
         ti_lag_4w_calc = (casos_lag_4w / poblacion) * 100000
-        
+
         # 8. Codificar estado para clasificador
         nombre_para_encoder = ESTADO_POR_ID.get(id_region, nombre_estado)
         try:
             entidad_coded = LABEL_ENCODER.transform([nombre_para_encoder])[0]
         except ValueError:
             entidad_coded = id_region - 1
-        
+
         # 9. DataFrame para predicciÃ³n de riesgo (clasificador)
         X_predict = pd.DataFrame({
             'TI_LAG_1W': [ti_lag_1w_calc],
@@ -489,14 +489,14 @@ def predecir_riesgo_avanzado():
             'MES': [mes],
             'ENTIDAD_CODED': [entidad_coded]
         })
-        
+
         # 10. PredicciÃ³n de RIESGO con Random Forest Clasificador
         prediction_proba = MODELO_DENGUE.predict_proba(X_predict)[0][1]
         prediction_class = MODELO_DENGUE.predict(X_predict)[0]
-        
+
         riesgo_probabilidad = round(prediction_proba * 100, 1)
         riesgo_clase = int(prediction_class)
-        
+
         # 11. Nivel y mensaje de riesgo
         if riesgo_probabilidad >= 75:
             nivel_riesgo = 'Crítico'
@@ -510,28 +510,28 @@ def predecir_riesgo_avanzado():
         else:
             nivel_riesgo = 'Bajo'
             mensaje = 'Riesgo bajo.'
-        
+
         # 12. Tendencias
         tendencia_casos = casos_lag_1w - casos_lag_4w
         tendencia_tasa = ti_lag_1w_calc - ti_lag_4w_calc
-        
+
         # 13. La predicciÃ³n de casos viene del modelo de regresiÃ³n
         prediccion_prox_semana = casos_prediccion
-        
+
         # 14. Obtener datos reales para validaciÃ³n
         datos_reales = None
-        
+
         # Buscar datos reales para la fecha solicitada
         cursor.execute('''
             SELECT fecha_fin_semana, casos_confirmados
             FROM dato_epidemiologico
-            WHERE id_region = %s 
+            WHERE id_region = %s
               AND fecha_fin_semana BETWEEN DATE_SUB(%s, INTERVAL 4 DAY) AND DATE_ADD(%s, INTERVAL 4 DAY)
             ORDER BY ABS(DATEDIFF(fecha_fin_semana, %s))
             LIMIT 1
         ''', (id_region, fecha_prediccion, fecha_prediccion, fecha_prediccion))
         real_result = cursor.fetchone()
-        
+
         if real_result:
             casos_real = int(real_result['casos_confirmados'])
             fecha_real = real_result['fecha_fin_semana']
@@ -542,7 +542,7 @@ def predecir_riesgo_avanzado():
                 'error_absoluto': abs(prediccion_prox_semana - casos_real),
                 'error_porcentual': round(abs((prediccion_prox_semana - casos_real) / casos_real * 100), 1) if casos_real > 0 else 0
             }
-        
+
         # 17. MÃ©tricas del modelo (si se solicitan)
         metricas = None
         if incluir_metricas:
@@ -553,7 +553,7 @@ def predecir_riesgo_avanzado():
                 'f1_score': 85,
                 'auc_roc': 0.89
             }
-        
+
         response_data = {
             'success': True,
             'modelo_utilizado': 'Random Forest',
@@ -586,15 +586,15 @@ def predecir_riesgo_avanzado():
                 'historial_semanas': 4
             }
         }
-        
+
         if datos_reales:
             response_data['validacion'] = datos_reales
-        
+
         if metricas:
             response_data['metricas_modelo'] = metricas
-        
+
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"âŒ Error en predicciÃ³n avanzada: {e}")
         import traceback
@@ -673,7 +673,7 @@ def get_resumen():
 def health():
     """Estado del servidor para monitoreo en tiempo real"""
     conn = get_db_connection()
-    
+
     health_status = {
         'timestamp': datetime.now().isoformat(),
         'status': 'healthy',
@@ -701,16 +701,16 @@ def health():
             'distribution': []
         }
     }
-    
+
     # Verificar conexiÃ³n a base de datos
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            
+
             # Estado de conexiÃ³n
             health_status['database']['status'] = 'connected'
             health_status['database']['active_connections'] = 1
-            
+
             # Contar predicciones del dÃ­a
             cursor.execute("""
                 SELECT COUNT(*) as total_hoy
@@ -719,12 +719,12 @@ def health():
             """)
             result = cursor.fetchone()
             health_status['predictions']['today'] = result['total_hoy'] if result else 0
-            
+
             # Total de predicciones
             cursor.execute("SELECT COUNT(*) as total FROM prediccion")
             result = cursor.fetchone()
             health_status['predictions']['total'] = result['total'] if result else 0
-            
+
             # DistribuciÃ³n por nivel de riesgo
             cursor.execute("""
                 SELECT nivel_riesgo, COUNT(*) as cantidad
@@ -737,27 +737,27 @@ def health():
                 {'nivel': d['nivel_riesgo'], 'cantidad': d['cantidad']}
                 for d in distribucion
             ] if distribucion else []
-            
+
             # Tasa de Ã©xito
             health_status['predictions']['success_rate'] = 95.0
             health_status['predictions']['last_minute'] = 0
-            
+
             cursor.close()
             conn.close()
-            
+
         except Exception as e:
             health_status['database']['status'] = 'error'
             health_status['status'] = 'degraded'
             print(f"Error en health check DB: {e}")
-    
+
     # Verificar modelos ML - CORRECCIÃ“N AQUÃ
     if MODELO_DENGUE is not None and LABEL_ENCODER is not None:
         health_status['models']['loaded'] = True
         health_status['models']['classifier'] = 'RandomForest'
-        
+
     if MODELO_REGRESSOR is not None:
         health_status['models']['regressor'] = 'RandomForest'
-    
+
     return jsonify(health_status), 200
 
 
@@ -771,13 +771,13 @@ def get_reporte_epidemiologico():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
-        
+
         # 1. Estadísticas generales
         cursor.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_registros,
                 COALESCE(SUM(casos_confirmados), 0) as total_casos,
                 COALESCE(AVG(casos_confirmados), 0) as promedio_casos,
@@ -789,17 +789,17 @@ def get_reporte_epidemiologico():
             FROM dato_epidemiologico
         """)
         estadisticas = cursor.fetchone()
-        
+
         # Convertir Decimal a float/int
         for key in estadisticas:
             if hasattr(estadisticas[key], 'real'):
                 estadisticas[key] = float(estadisticas[key])
             elif isinstance(estadisticas[key], (int, float)):
                 estadisticas[key] = int(estadisticas[key]) if isinstance(estadisticas[key], int) else float(estadisticas[key])
-        
+
         # 2. Top 10 estados con mÃ¡s casos
         cursor.execute("""
-            SELECT 
+            SELECT
                 r.nombre as estado,
                 d.id_region,
                 SUM(d.casos_confirmados) as total_casos,
@@ -817,10 +817,10 @@ def get_reporte_epidemiologico():
             for key in estado:
                 if hasattr(estado[key], 'real'):
                     estado[key] = float(estado[key])
-        
+
         # 3. EvoluciÃ³n anual
         cursor.execute("""
-            SELECT 
+            SELECT
                 YEAR(fecha_fin_semana) as anio,
                 SUM(casos_confirmados) as total_casos,
                 AVG(casos_confirmados) as promedio_semanal,
@@ -834,10 +834,10 @@ def get_reporte_epidemiologico():
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         # 4. Tendencia mensual (Ãºltimos 24 meses)
         cursor.execute("""
-            SELECT 
+            SELECT
                 DATE_FORMAT(fecha_fin_semana, '%Y-%m') as mes,
                 SUM(casos_confirmados) as total_casos,
                 AVG(casos_confirmados) as promedio
@@ -851,10 +851,10 @@ def get_reporte_epidemiologico():
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         # 5. DistribuciÃ³n por semana epidemiolÃ³gica (promedio histÃ³rico)
         cursor.execute("""
-            SELECT 
+            SELECT
                 WEEK(fecha_fin_semana) as semana_epidemiologica,
                 AVG(casos_confirmados) as promedio_casos,
                 SUM(casos_confirmados) as total_casos
@@ -867,10 +867,10 @@ def get_reporte_epidemiologico():
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         # 6. Comparativa de aÃ±os
         cursor.execute("""
-            SELECT 
+            SELECT
                 YEAR(fecha_fin_semana) as anio,
                 MONTH(fecha_fin_semana) as mes,
                 SUM(casos_confirmados) as casos
@@ -884,10 +884,10 @@ def get_reporte_epidemiologico():
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         # 7. Alertas de alto riesgo (semanas con casos > promedio * 2)
         cursor.execute("""
-            SELECT 
+            SELECT
                 r.nombre as estado,
                 d.fecha_fin_semana as fecha_inicio,
                 WEEK(d.fecha_fin_semana) as semana_epidemiologica,
@@ -907,13 +907,13 @@ def get_reporte_epidemiologico():
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         # Convertir fechas en estadÃ­sticas
         if estadisticas.get('fecha_inicio_datos'):
             estadisticas['fecha_inicio_datos'] = estadisticas['fecha_inicio_datos'].isoformat()
         if estadisticas.get('fecha_fin_datos'):
             estadisticas['fecha_fin_datos'] = estadisticas['fecha_fin_datos'].isoformat()
-        
+
         return jsonify({
             'success': True,
             'estadisticas': estadisticas,
@@ -925,7 +925,7 @@ def get_reporte_epidemiologico():
             'alertas_alto_riesgo': alertas_alto_riesgo,
             'generado_en': datetime.now().isoformat()
         })
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -941,20 +941,20 @@ def get_reporte_estado(id_region):
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
-        
+
         # Info del estado
         # La tabla region usa la columna id_region; evitar columna inexistente id
         cursor.execute("SELECT nombre FROM region WHERE id_region = %s", (id_region,))
         estado_info = cursor.fetchone()
         if not estado_info:
             return jsonify({'error': 'Estado no encontrado'}), 404
-        
+
         # EstadÃ­sticas del estado
         cursor.execute("""
-            SELECT 
+            SELECT
                 SUM(casos_confirmados) as total_casos,
                 AVG(casos_confirmados) as promedio_semanal,
                 MAX(casos_confirmados) as max_casos,
@@ -966,7 +966,7 @@ def get_reporte_estado(id_region):
         for key in stats:
             if hasattr(stats[key], 'real'):
                 stats[key] = float(stats[key])
-        
+
         # EvoluciÃ³n mensual del estado
         cursor.execute("""
             SELECT
@@ -982,7 +982,7 @@ def get_reporte_estado(id_region):
             for key in item:
                 if hasattr(item[key], 'real'):
                     item[key] = float(item[key])
-        
+
         return jsonify({
             'success': True,
             'estado': estado_info['nombre'],
@@ -990,7 +990,7 @@ def get_reporte_estado(id_region):
             'estadisticas': stats,
             'evolucion_mensual': evolucion
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1041,27 +1041,27 @@ def crear_tabla_predicciones():
 def guardar_prediccion():
     """Guarda una predicción en la base de datos"""
     import json
-    
+
     data = request.json
-    
+
     required = ['estado', 'fecha_inicio', 'numero_semanas', 'predicciones']
     if not all(k in data for k in required):
         return jsonify({'error': 'Faltan campos requeridos'}), 400
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexiÃ³n a BD'}), 500
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Preparar datos
         fecha_gen = datetime.now()
         nombre_lote = data.get('nombre_lote', f"PredicciÃ³n {fecha_gen.strftime('%Y-%m-%d %H:%M')}")
-        
+
         cursor.execute("""
-            INSERT INTO predicciones_guardadas 
-            (fecha_generacion, nombre_lote, estado, id_region, fecha_inicio, 
+            INSERT INTO predicciones_guardadas
+            (fecha_generacion, nombre_lote, estado, id_region, fecha_inicio,
              numero_semanas, datos_prediccion, datos_validacion, metricas, usuario)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
@@ -1076,10 +1076,10 @@ def guardar_prediccion():
             json.dumps(data.get('metricas', {})),
             data.get('usuario', 'sistema')
         ))
-        
+
         conn.commit()
         prediccion_id = cursor.lastrowid
-        
+
         return jsonify({
             'success': True,
             'mensaje': 'PredicciÃ³n guardada exitosamente',
@@ -1087,7 +1087,7 @@ def guardar_prediccion():
             'nombre_lote': nombre_lote,
             'fecha_generacion': fecha_gen.isoformat()
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1101,11 +1101,11 @@ def listar_predicciones():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexiÃ³n'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT 
+            SELECT
                 id,
                 fecha_generacion,
                 nombre_lote,
@@ -1117,21 +1117,21 @@ def listar_predicciones():
             ORDER BY fecha_generacion DESC
             LIMIT 100
         """)
-        
+
         predicciones = cursor.fetchall()
-        
+
         # Convertir fechas a string
         for p in predicciones:
             p['fecha_generacion'] = p['fecha_generacion'].isoformat() if p['fecha_generacion'] else None
             p['fecha_inicio'] = p['fecha_inicio'].isoformat() if p['fecha_inicio'] else None
             p['created_at'] = p['created_at'].isoformat() if p['created_at'] else None
-        
+
         return jsonify({
             'success': True,
             'predicciones': predicciones,
             'total': len(predicciones)
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1143,22 +1143,22 @@ def listar_predicciones():
 def obtener_prediccion(id):
     """Obtiene una predicción específica con todos sus datos"""
     import json
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT * FROM predicciones_guardadas WHERE id = %s
         """, (id,))
-        
+
         prediccion = cursor.fetchone()
-        
+
         if not prediccion:
             return jsonify({'error': 'Predicción no encontrada'}), 404
-        
+
         # Parsear JSON y convertir fechas
         prediccion['datos_prediccion'] = json.loads(prediccion['datos_prediccion']) if prediccion['datos_prediccion'] else []
         prediccion['datos_validacion'] = json.loads(prediccion['datos_validacion']) if prediccion['datos_validacion'] else []
@@ -1166,12 +1166,12 @@ def obtener_prediccion(id):
         prediccion['fecha_generacion'] = prediccion['fecha_generacion'].isoformat() if prediccion['fecha_generacion'] else None
         prediccion['fecha_inicio'] = prediccion['fecha_inicio'].isoformat() if prediccion['fecha_inicio'] else None
         prediccion['created_at'] = prediccion['created_at'].isoformat() if prediccion['created_at'] else None
-        
+
         return jsonify({
             'success': True,
             'prediccion': prediccion
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1185,20 +1185,20 @@ def eliminar_prediccion(id):
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM predicciones_guardadas WHERE id = %s", (id,))
         conn.commit()
-        
+
         if cursor.rowcount == 0:
             return jsonify({'error': 'PredicciÃ³n no encontrada'}), 404
-        
+
         return jsonify({
             'success': True,
             'mensaje': 'PredicciÃ³n eliminada'
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1226,41 +1226,41 @@ def get_estadisticas_datos():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
-        
+
         # Total registros
         cursor.execute("SELECT COUNT(*) as total FROM dato_epidemiologico")
         total_registros = cursor.fetchone()['total']
-        
+
         # Rango de fechas
         cursor.execute("SELECT MIN(fecha_fin_semana) as fecha_min, MAX(fecha_fin_semana) as fecha_max FROM dato_epidemiologico")
         rango = cursor.fetchone()
-        
+
         # Total casos
         cursor.execute("SELECT COALESCE(SUM(casos_confirmados), 0) as total FROM dato_epidemiologico")
         total_casos = cursor.fetchone()['total']
-        
+
         # Por aÃ±o
         cursor.execute("""
-            SELECT YEAR(fecha_fin_semana) as anio, 
+            SELECT YEAR(fecha_fin_semana) as anio,
                    COUNT(*) as registros,
                    SUM(casos_confirmados) as casos
-            FROM dato_epidemiologico 
-            GROUP BY YEAR(fecha_fin_semana) 
+            FROM dato_epidemiologico
+            GROUP BY YEAR(fecha_fin_semana)
             ORDER BY anio
         """)
         por_anio = cursor.fetchall()
-        
+
         # Regiones con datos
         cursor.execute("SELECT COUNT(DISTINCT id_region) as total FROM dato_epidemiologico")
         regiones_con_datos = cursor.fetchone()['total']
-        
+
         # Ãšltima carga
         cursor.execute("SELECT MAX(fecha_carga) as ultima FROM dato_epidemiologico")
         ultima_carga = cursor.fetchone()['ultima']
-        
+
         return jsonify({
             'success': True,
             'total_registros': total_registros,
@@ -1283,19 +1283,19 @@ def procesar_csv_preview():
     """Procesa un archivo CSV y devuelve preview sin guardar en BD"""
     if 'archivo' not in request.files:
         return jsonify({'error': 'No se envió ningun archivo'}), 400
-    
+
     archivo = request.files['archivo']
     if archivo.filename == '':
         return jsonify({'error': 'Nombre de archivo vacío'}), 400
-    
+
     if not archivo.filename.endswith('.csv'):
         return jsonify({'error': 'Solo se permiten archivos CSV'}), 400
-    
+
     try:
         # Leer CSV
         df = pd.read_csv(archivo)
         registros_originales = len(df)
-        
+
         # Validar columnas requeridas
         columnas_requeridas = ['FECHA_SIGN_SINTOMAS', 'ENTIDAD_RES', 'ESTATUS_CASO']
         columnas_faltantes = [c for c in columnas_requeridas if c not in df.columns]
@@ -1305,24 +1305,24 @@ def procesar_csv_preview():
                 'error': f'Columnas faltantes: {", ".join(columnas_faltantes)}',
                 'columnas_encontradas': list(df.columns)
             }), 400
-        
+
         # Procesar datos
         df['FECHA_SIGN_SINTOMAS'] = pd.to_datetime(df['FECHA_SIGN_SINTOMAS'], errors='coerce')
         df.dropna(subset=['FECHA_SIGN_SINTOMAS'], inplace=True)
         df_confirmados = df[df['ESTATUS_CASO'] == 1].copy()
-        
+
         if len(df_confirmados) == 0:
             return jsonify({
                 'success': False,
                 'error': 'No hay casos confirmados (ESTATUS_CASO=1) en el archivo',
                 'registros_totales': registros_originales
             }), 400
-        
+
         # Agregar poblaciÃ³n y nombre de estado
         df_confirmados['POBLACION'] = df_confirmados['ENTIDAD_RES'].map(POBLACION_2025)
         df_confirmados.dropna(subset=['POBLACION'], inplace=True)
         df_confirmados['NOMBRE_ESTADO'] = df_confirmados['ENTIDAD_RES'].map(ESTADO_POR_ID)
-        
+
         # Agregar a series de tiempo (semanal)
         df_ts = (
             df_confirmados.groupby(['ENTIDAD_RES', 'NOMBRE_ESTADO', 'POBLACION'])
@@ -1331,14 +1331,14 @@ def procesar_csv_preview():
             .reset_index(name='casos_confirmados')
         )
         df_ts.rename(columns={'FECHA_SIGN_SINTOMAS': 'fecha_fin_semana'}, inplace=True)
-        
+
         # Calcular tasa de incidencia
         df_ts['tasa_incidencia'] = (df_ts['casos_confirmados'] / df_ts['POBLACION']) * 100000
-        
+
         # Calcular target de riesgo (percentil 75)
         umbral_riesgo = df_ts['tasa_incidencia'].quantile(0.75)
         df_ts['riesgo_brote_target'] = np.where(df_ts['tasa_incidencia'] > umbral_riesgo, 1, 0).astype(int)
-        
+
         # Preparar preview (primeros 10 registros)
         preview_data = []
         for _, row in df_ts.head(10).iterrows():
@@ -1350,13 +1350,13 @@ def procesar_csv_preview():
                 'tasa_incidencia': round(float(row['tasa_incidencia']), 4),
                 'riesgo_brote': bool(row['riesgo_brote_target'] == 1)
             })
-        
+
         # Estadisticas del procesamiento
         anios_procesados = sorted(df_ts['fecha_fin_semana'].dt.year.unique().tolist())
         estados_procesados = df_ts['NOMBRE_ESTADO'].unique().tolist()
         fecha_inicio = df_ts['fecha_fin_semana'].min().strftime('%Y-%m-%d')
         fecha_fin = df_ts['fecha_fin_semana'].max().strftime('%Y-%m-%d')
-        
+
         return jsonify({
             'success': True,
             'resumen': {
@@ -1371,7 +1371,7 @@ def procesar_csv_preview():
             },
             'preview': preview_data
         })
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1383,24 +1383,24 @@ def cargar_csv():
     """Carga un archivo CSV con datos de dengue y los procesa"""
     if 'archivo' not in request.files:
         return jsonify({'error': 'No se envió ningún archivo'}), 400
-    
+
     archivo = request.files['archivo']
     if archivo.filename == '':
         return jsonify({'error': 'Nombre de archivo vacío'}), 400
-    
+
     if not archivo.filename.endswith('.csv'):
         return jsonify({'error': 'Solo se permiten archivos CSV'}), 400
-    
+
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión a base de datos'}), 500
-    
+
     cursor = None
     try:
         # Leer CSV
         df = pd.read_csv(archivo)
         registros_originales = len(df)
-        
+
         # Validar columnas requeridas
         columnas_requeridas = ['FECHA_SIGN_SINTOMAS', 'ENTIDAD_RES', 'ESTATUS_CASO']
         columnas_faltantes = [c for c in columnas_requeridas if c not in df.columns]
@@ -1409,25 +1409,25 @@ def cargar_csv():
                 'error': f'Columnas faltantes: {", ".join(columnas_faltantes)}',
                 'columnas_encontradas': list(df.columns)
             }), 400
-        
+
         # Procesar datos
         df['FECHA_SIGN_SINTOMAS'] = pd.to_datetime(df['FECHA_SIGN_SINTOMAS'], errors='coerce')
         df.dropna(subset=['FECHA_SIGN_SINTOMAS'], inplace=True)
         df_confirmados = df[df['ESTATUS_CASO'] == 1].copy()
-        
+
         if len(df_confirmados) == 0:
             return jsonify({
                 'error': 'No hay casos confirmados (ESTATUS_CASO=1) en el archivo',
                 'registros_totales': registros_originales
             }), 400
-        
+
         # Agregar poblaciÃ³n
         df_confirmados['POBLACION'] = df_confirmados['ENTIDAD_RES'].map(POBLACION_2025)
         df_confirmados.dropna(subset=['POBLACION'], inplace=True)
-        
+
         # Agregar nombre de estado
         df_confirmados['NOMBRE_ESTADO'] = df_confirmados['ENTIDAD_RES'].map(ESTADO_POR_ID)
-        
+
         # Agregar a series de tiempo (semanal)
         df_ts = (
             df_confirmados.groupby(['ENTIDAD_RES', 'NOMBRE_ESTADO', 'POBLACION'])
@@ -1436,30 +1436,30 @@ def cargar_csv():
             .reset_index(name='casos_confirmados')
         )
         df_ts.rename(columns={'FECHA_SIGN_SINTOMAS': 'fecha_fin_semana'}, inplace=True)
-        
+
         # Calcular tasa de incidencia
         df_ts['tasa_incidencia'] = (df_ts['casos_confirmados'] / df_ts['POBLACION']) * 100000
-        
+
         # Calcular target de riesgo (percentil 75)
         umbral_riesgo = df_ts['tasa_incidencia'].quantile(0.75)
         df_ts['riesgo_brote_target'] = np.where(df_ts['tasa_incidencia'] > umbral_riesgo, 1, 0).astype(int)
-        
+
         # Preparar para inserciÃ³n
         cursor = conn.cursor()
         fecha_carga = datetime.now().date()
-        
+
         insert_sql = """
-        INSERT INTO dato_epidemiologico 
-            (id_enfermedad, id_region, fecha_fin_semana, casos_confirmados, 
+        INSERT INTO dato_epidemiologico
+            (id_enfermedad, id_region, fecha_fin_semana, casos_confirmados,
              defunciones, tasa_incidencia, riesgo_brote_target, fecha_carga)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-            casos_confirmados = VALUES(casos_confirmados), 
+        ON DUPLICATE KEY UPDATE
+            casos_confirmados = VALUES(casos_confirmados),
             tasa_incidencia = VALUES(tasa_incidencia),
             riesgo_brote_target = VALUES(riesgo_brote_target),
             fecha_carga = VALUES(fecha_carga)
         """
-        
+
         registros_insertados = 0
         for _, row in df_ts.iterrows():
             cursor.execute(insert_sql, (
@@ -1473,13 +1473,13 @@ def cargar_csv():
                 fecha_carga
             ))
             registros_insertados += 1
-        
+
         conn.commit()
-        
+
         # Estadisticas del archivo procesado
         anios_procesados = df_ts['fecha_fin_semana'].dt.year.unique().tolist()
         estados_procesados = df_ts['NOMBRE_ESTADO'].unique().tolist()
-        
+
         return jsonify({
             'success': True,
             'mensaje': f'Datos cargados exitosamente',
@@ -1492,7 +1492,7 @@ def cargar_csv():
                 'fecha_carga': fecha_carga.isoformat()
             }
         })
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1510,18 +1510,18 @@ def limpiar_datos():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Contar antes de eliminar
         cursor.execute("SELECT COUNT(*) FROM dato_epidemiologico")
         registros_antes = cursor.fetchone()[0]
-        
+
         # Eliminar datos
         cursor.execute("DELETE FROM dato_epidemiologico")
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'mensaje': 'Datos eliminados',
@@ -1540,18 +1540,18 @@ def limpiar_datos_anio(anio):
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Contar antes de eliminar
         cursor.execute("SELECT COUNT(*) FROM dato_epidemiologico WHERE YEAR(fecha_fin_semana) = %s", (anio,))
         registros_antes = cursor.fetchone()[0]
-        
+
         # Eliminar datos del aÃ±o
         cursor.execute("DELETE FROM dato_epidemiologico WHERE YEAR(fecha_fin_semana) = %s", (anio,))
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'mensaje': f'Datos del aÃ±o {anio} eliminados',
@@ -1570,11 +1570,11 @@ def resumen_por_estado():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT 
+            SELECT
                 r.id_region,
                 r.nombre as estado,
                 r.poblacion,
@@ -1589,7 +1589,7 @@ def resumen_por_estado():
             ORDER BY total_casos DESC
         """)
         estados = cursor.fetchall()
-        
+
         for estado in estados:
             if estado['fecha_inicio']:
                 estado['fecha_inicio'] = estado['fecha_inicio'].isoformat()
@@ -1597,7 +1597,7 @@ def resumen_por_estado():
                 estado['fecha_fin'] = estado['fecha_fin'].isoformat()
             if estado['promedio_ti']:
                 estado['promedio_ti'] = float(estado['promedio_ti'])
-        
+
         return jsonify({'success': True, 'estados': estados})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1684,25 +1684,25 @@ def generar_alertas_automaticas():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         data = request.get_json() or {}
         umbral_riesgo = data.get('umbral_riesgo', 50)
-        
+
         cursor = conn.cursor(dictionary=True)
-        
+
         # Obtener todas las regiones
         cursor.execute("SELECT id_region, nombre, poblacion FROM region ORDER BY id_region")
         regiones = cursor.fetchall()
-        
+
         alertas = []
         fecha_actual = datetime.now().strftime('%Y-%m-%d')
-        
+
         for region in regiones:
             id_region = region['id_region']
             nombre = region['nombre']
             poblacion = region['poblacion'] or 100000
-            
+
             # Obtener datos histÃ³ricos recientes
             cursor.execute('''
                 SELECT casos_confirmados, tasa_incidencia, fecha_fin_semana
@@ -1712,15 +1712,15 @@ def generar_alertas_automaticas():
                 LIMIT 4
             ''', (id_region,))
             datos = cursor.fetchall()
-            
+
             if len(datos) < 2:
                 continue
-            
+
             # Calcular tendencia y riesgo
             casos_reciente = datos[0]['casos_confirmados'] if datos else 0
             casos_anterior = datos[1]['casos_confirmados'] if len(datos) > 1 else casos_reciente
             ti_actual = float(datos[0]['tasa_incidencia']) if datos else 0
-            
+
             # Tendencia
             if casos_reciente > casos_anterior * 1.2:
                 tendencia = 'Creciente'
@@ -1728,26 +1728,26 @@ def generar_alertas_automaticas():
                 tendencia = 'Decreciente'
             else:
                 tendencia = 'Estable'
-            
+
             # Usar modelo de clasificaciÃ³n si estÃ¡ disponible
             if MODELO_DENGUE is not None:
                 try:
                     casos_hist = [int(d['casos_confirmados']) for d in datos]
                     ti_hist = [float(d['tasa_incidencia']) for d in datos]
-                    
+
                     casos_lag_1w = casos_hist[0]
                     casos_lag_4w = casos_hist[3] if len(casos_hist) > 3 else casos_lag_1w
                     ti_lag_1w = ti_hist[0]
                     ti_lag_4w = ti_hist[3] if len(ti_hist) > 3 else ti_lag_1w
-                    
+
                     semana = datetime.now().isocalendar()[1]
                     mes = datetime.now().month
-                    
+
                     try:
                         entidad_coded = LABEL_ENCODER.transform([nombre])[0]
                     except:
                         entidad_coded = id_region - 1
-                    
+
                     X_predict = pd.DataFrame({
                         'TI_LAG_1W': [ti_lag_1w],
                         'TI_LAG_4W': [ti_lag_4w],
@@ -1757,17 +1757,17 @@ def generar_alertas_automaticas():
                         'MES': [mes],
                         'ENTIDAD_CODED': [entidad_coded]
                     })
-                    
+
                     probabilidad = round(MODELO_DENGUE.predict_proba(X_predict)[0][1] * 100, 1)
                 except Exception as e:
                     probabilidad = min(100, max(0, ti_actual * 2))
             else:
                 probabilidad = min(100, max(0, ti_actual * 2))
-            
+
             # Solo incluir si supera el umbral
             if probabilidad < umbral_riesgo:
                 continue
-            
+
             # Determinar nivel de riesgo
             if probabilidad >= 75:
                 nivel = 'Crítico'
@@ -1785,7 +1785,7 @@ def generar_alertas_automaticas():
                 nivel = 'Bajo'
                 mensaje = f'{nombre}: Riesgo bajo de brote.'
                 recomendaciones = 'Continuar con medidas preventivas habituales.'
-            
+
             # PredicciÃ³n de casos (si hay modelo de regresiÃ³n)
             casos_esperados = casos_reciente
             if MODELO_REGRESSOR is not None:
@@ -1806,7 +1806,7 @@ def generar_alertas_automaticas():
                     casos_esperados = int(max(0, MODELO_REGRESSOR.predict(X_reg)[0]))
                 except:
                     pass
-            
+
             alertas.append({
                 'id_region': id_region,
                 'estado': nombre,
@@ -1820,10 +1820,10 @@ def generar_alertas_automaticas():
                 'fecha': fecha_actual,
                 'enviada': False
             })
-        
+
         # Ordenar por probabilidad descendente
         alertas.sort(key=lambda x: x['probabilidad'], reverse=True)
-        
+
         return jsonify({
             'success': True,
             'alertas': alertas,
@@ -1831,7 +1831,7 @@ def generar_alertas_automaticas():
             'umbral_usado': umbral_riesgo,
             'fecha_analisis': fecha_actual
         })
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1847,17 +1847,17 @@ def enviar_alerta():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         data = request.get_json()
-        
+
         cursor = conn.cursor()
-        
+
         # Insertar alerta en la base de datos
         cursor.execute("""
-            INSERT INTO alertas_epidemiologicas 
-            (id_region, estado, nivel, probabilidad, casos_esperados, 
-             mensaje, recomendaciones, tipo_notificacion, prioridad, 
+            INSERT INTO alertas_epidemiologicas
+            (id_region, estado, nivel, probabilidad, casos_esperados,
+             mensaje, recomendaciones, tipo_notificacion, prioridad,
              estado_alerta, fecha_envio)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'enviada', NOW())
         """, (
@@ -1871,20 +1871,20 @@ def enviar_alerta():
             data.get('tipo_notificacion', 'sistema'),
             data.get('prioridad', 'alta')
         ))
-        
+
         conn.commit()
         alerta_id = cursor.lastrowid
-        
+
         # AquÃ­ se integrarÃ­a con servicio de email/SMS real
         # Por ahora solo simulamos el envÃ­o
-        
+
         return jsonify({
             'success': True,
             'mensaje': f'Alerta enviada exitosamente a {data.get("estado")}',
             'alerta_id': alerta_id,
             'tipo_envio': data.get('tipo_notificacion', 'sistema')
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1898,19 +1898,19 @@ def enviar_alertas_masivo():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         data = request.get_json()
         alertas = data.get('alertas', [])
-        
+
         cursor = conn.cursor()
         enviadas = 0
-        
+
         for alerta in alertas:
             cursor.execute("""
-                INSERT INTO alertas_epidemiologicas 
-                (id_region, estado, nivel, probabilidad, casos_esperados, 
-                 mensaje, recomendaciones, tipo_notificacion, prioridad, 
+                INSERT INTO alertas_epidemiologicas
+                (id_region, estado, nivel, probabilidad, casos_esperados,
+                 mensaje, recomendaciones, tipo_notificacion, prioridad,
                  estado_alerta, fecha_envio)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'enviada', NOW())
             """, (
@@ -1925,15 +1925,15 @@ def enviar_alertas_masivo():
                 data.get('prioridad', 'alta')
             ))
             enviadas += 1
-        
+
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'enviadas': enviadas,
             'mensaje': f'{enviadas} alertas enviadas exitosamente'
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1947,38 +1947,38 @@ def get_alertas_activas():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexiÃ³n'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, id_region, estado, nivel, probabilidad, 
+            SELECT id, id_region, estado, nivel, probabilidad,
                    casos_esperados, mensaje, recomendaciones,
                    fecha_generacion, fecha_envio, estado_alerta
             FROM alertas_epidemiologicas
             WHERE estado_alerta IN ('activa', 'enviada')
-            ORDER BY 
-                CASE nivel 
-                    WHEN 'CrÃ­tico' THEN 1 
-                    WHEN 'Alto' THEN 2 
-                    WHEN 'Moderado' THEN 3 
-                    ELSE 4 
+            ORDER BY
+                CASE nivel
+                    WHEN 'CrÃ­tico' THEN 1
+                    WHEN 'Alto' THEN 2
+                    WHEN 'Moderado' THEN 3
+                    ELSE 4
                 END,
                 fecha_generacion DESC
         """)
         alertas = cursor.fetchall()
-        
+
         for a in alertas:
             if a.get('fecha_generacion'):
                 a['fecha_generacion'] = a['fecha_generacion'].isoformat()
             if a.get('fecha_envio'):
                 a['fecha_envio'] = a['fecha_envio'].isoformat()
-        
+
         return jsonify({
             'success': True,
             'alertas': alertas,
             'total': len(alertas)
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1992,31 +1992,31 @@ def get_historial_alertas():
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT id, id_region, estado, nivel, probabilidad, 
-                   mensaje, estado_alerta, fecha_generacion, 
+            SELECT id, id_region, estado, nivel, probabilidad,
+                   mensaje, estado_alerta, fecha_generacion,
                    fecha_resolucion, resolucion
             FROM alertas_epidemiologicas
             ORDER BY fecha_generacion DESC
             LIMIT 100
         """)
         alertas = cursor.fetchall()
-        
+
         for a in alertas:
             if a.get('fecha_generacion'):
                 a['fecha_generacion'] = a['fecha_generacion'].isoformat()
             if a.get('fecha_resolucion'):
                 a['fecha_resolucion'] = a['fecha_resolucion'].isoformat()
-        
+
         return jsonify({
             'success': True,
             'alertas': alertas,
             'total': len(alertas)
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -2030,11 +2030,11 @@ def resolver_alerta(alerta_id):
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Error de conexión'}), 500
-    
+
     try:
         data = request.get_json() or {}
         resolucion = data.get('resolucion', 'Alerta atendida')
-        
+
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE alertas_epidemiologicas
@@ -2043,14 +2043,14 @@ def resolver_alerta(alerta_id):
                 resolucion = %s
             WHERE id = %s
         """, (resolucion, alerta_id))
-        
+
         conn.commit()
-        
+
         return jsonify({
             'success': True,
             'mensaje': 'Alerta marcada como resuelta'
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -2065,23 +2065,23 @@ def resolver_alerta(alerta_id):
 def entrenar_modelo():
     """Entrenar un modelo de Machine Learning con datos CSV"""
     global MODELO_DENGUE, LABEL_ENCODER, MODELO_REGRESSOR, LABEL_ENCODER_REG, REGRESSOR_FEATURES
-    
+
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import LabelEncoder
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, r2_score, mean_absolute_error
-    
+
     try:
         data = request.get_json()
         tipo_modelo = data.get('tipo_modelo')  # 'clasificador' o 'regresor'
         archivo_csv = data.get('archivo_csv')  # Ruta o nombre del archivo
-        
+
         if not tipo_modelo or not archivo_csv:
             return jsonify({
                 'success': False,
                 'error': 'Faltan parámetros: tipo_modelo y archivo_csv son requeridos'
             }), 400
-        
+
         # Buscar el archivo CSV
         csv_path = None
         posibles_rutas = [
@@ -2090,50 +2090,50 @@ def entrenar_modelo():
             os.path.join(BACKEND_DIR, archivo_csv),
             archivo_csv
         ]
-        
+
         for ruta in posibles_rutas:
             if os.path.exists(ruta):
                 csv_path = ruta
                 break
-        
+
         if not csv_path:
             return jsonify({
                 'success': False,
                 'error': f'Archivo CSV no encontrado: {archivo_csv}'
             }), 404
-        
+
         # Cargar datos
         df = pd.read_csv(csv_path)
         print(f"📊 Datos cargados: {len(df)} registros, {len(df.columns)} columnas")
-        
+
         if tipo_modelo == 'clasificador':
             # Entrenar modelo clasificador
             required_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES']
-            
+
             # Verificar si necesitamos codificar la entidad
             if 'ENTIDAD_FED' in df.columns and 'ENTIDAD_CODED' not in df.columns:
                 le_entidad = LabelEncoder()
                 df['ENTIDAD_CODED'] = le_entidad.fit_transform(df['ENTIDAD_FED'])
                 LABEL_ENCODER = le_entidad
                 print(f"✔️ LabelEncoder creado con {len(le_entidad.classes_)} estados")
-            
+
             # Verificar target
             if 'NIVEL_RIESGO' in df.columns:
                 riesgo_map = {'bajo': 0, 'medio': 1, 'alto': 2, 'critico': 3, 'crÃ­tico': 3}
                 df['NIVEL_RIESGO_ENCODED'] = df['NIVEL_RIESGO'].str.lower().map(riesgo_map)
-            
+
             # Preparar datos
             feature_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES', 'ENTIDAD_CODED']
             feature_cols = [col for col in feature_cols if col in df.columns]
-            
+
             X = df[feature_cols]
             y = df['NIVEL_RIESGO_ENCODED']
-            
+
             # Dividir datos
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.2, random_state=42, stratify=y
             )
-            
+
             # Entrenar modelo
             print("🧖 Entrenando Random Forest Clasificador...")
             modelo = RandomForestClassifier(
@@ -2145,29 +2145,29 @@ def entrenar_modelo():
                 n_jobs=-1
             )
             modelo.fit(X_train, y_train)
-            
+
             # Evaluar
             y_pred = modelo.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
             precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
             recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
             f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-            
+
             # Guardar modelo
             model_path = os.path.join(BACKEND_DIR, 'model.pkl')
             encoder_path = os.path.join(BACKEND_DIR, 'label_encoder.pkl')
             joblib.dump(modelo, model_path)
             joblib.dump(LABEL_ENCODER, encoder_path)
-            
+
             # Actualizar variable global
             MODELO_DENGUE = modelo
-            
+
             print(f"✔️ Modelo clasificador entrenado y guardado")
             print(f"   - Accuracy: {accuracy:.4f}")
             print(f"   - Precision: {precision:.4f}")
             print(f"   - Recall: {recall:.4f}")
             print(f"   - F1-Score: {f1:.4f}")
-            
+
             return jsonify({
                 'success': True,
                 'tipo_modelo': 'clasificador',
@@ -2186,32 +2186,32 @@ def entrenar_modelo():
                 'archivo_guardado': 'model.pkl',
                 'mensaje': 'Modelo clasificador entrenado exitosamente'
             }), 200
-            
+
         elif tipo_modelo == 'regresor':
             # Entrenar modelo regresor
             required_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES']
-            
+
             # Verificar si necesitamos codificar la entidad
             if 'ENTIDAD_FED' in df.columns and 'ENTIDAD_CODED' not in df.columns:
                 le_entidad = LabelEncoder()
                 df['ENTIDAD_CODED'] = le_entidad.fit_transform(df['ENTIDAD_FED'])
                 LABEL_ENCODER_REG = le_entidad
-            
+
             # Preparar datos
             feature_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES', 'ENTIDAD_CODED']
             feature_cols = [col for col in feature_cols if col in df.columns]
-            
+
             # Target: casos confirmados
             target_col = 'casos_confirmados' if 'casos_confirmados' in df.columns else 'CASOS_CONFIRMADOS'
-            
+
             X = df[feature_cols]
             y = df[target_col]
-            
+
             # Dividir datos
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.2, random_state=42
             )
-            
+
             # Entrenar modelo
             print("🧖 Entrenando Random Forest Regresor...")
             modelo = RandomForestRegressor(
@@ -2222,30 +2222,30 @@ def entrenar_modelo():
                 n_jobs=-1
             )
             modelo.fit(X_train, y_train)
-            
+
             # Evaluar
             y_pred = modelo.predict(X_test)
             r2 = r2_score(y_test, y_pred)
             mae = mean_absolute_error(y_test, y_pred)
-            
+
             # Guardar modelo
             regressor_path = os.path.join(BACKEND_DIR, 'model_regressor.pkl')
             features_path = os.path.join(BACKEND_DIR, 'regressor_features.pkl')
             encoder_reg_path = os.path.join(BACKEND_DIR, 'label_encoder_regressor.pkl')
-            
+
             joblib.dump(modelo, regressor_path)
             joblib.dump(feature_cols, features_path)
             if 'LABEL_ENCODER_REG' in locals():
                 joblib.dump(LABEL_ENCODER_REG, encoder_reg_path)
-            
+
             # Actualizar variable global
             MODELO_REGRESSOR = modelo
             REGRESSOR_FEATURES = feature_cols
-            
+
             print(f"✔️ Modelo regresor entrenado y guardado")
             print(f"   - R²: {r2:.4f}")
             print(f"   - MAE: {mae:.2f}")
-            
+
             return jsonify({
                 'success': True,
                 'tipo_modelo': 'regresor',
@@ -2262,13 +2262,13 @@ def entrenar_modelo():
                 'archivo_guardado': 'model_regressor.pkl',
                 'mensaje': 'Modelo regresor entrenado exitosamente'
             }), 200
-        
+
         else:
             return jsonify({
                 'success': False,
                 'error': 'tipo_modelo debe ser "clasificador" o "regresor"'
             }), 400
-            
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -2282,7 +2282,7 @@ def entrenar_modelo():
 @app.route('/api/modelos/info', methods=['GET'])
 def get_modelos_info():
     """Obtiene información sobre los modelos cargados y archivos CSV disponibles"""
-    
+
     modelos_info = {
         'clasificador': {
             'cargado': MODELO_DENGUE is not None,
@@ -2299,12 +2299,12 @@ def get_modelos_info():
             'features': REGRESSOR_FEATURES if REGRESSOR_FEATURES else []
         }
     }
-    
+
     # Buscar archivos CSV disponibles
     archivos_csv = []
     data_dir = os.path.join(BACKEND_DIR, '..', 'data')
     modelo_dir = os.path.join(BACKEND_DIR, '..', 'modelo')
-    
+
     for directorio, nombre_dir in [(data_dir, 'data'), (modelo_dir, 'modelo')]:
         if os.path.exists(directorio):
             for archivo in os.listdir(directorio):
@@ -2327,7 +2327,7 @@ def get_modelos_info():
                             'n_columnas': 0,
                             'tamano_mb': round(os.path.getsize(ruta_completa) / (1024*1024), 2)
                         })
-    
+
     return jsonify({
         'success': True,
         'modelos': modelos_info,
@@ -2374,5 +2374,5 @@ if __name__ == '__main__':
     print("   POST /api/modelos/entrenar")
     print("   GET  /api/modelos/info")
     print("="*60 + "\n")
-    
+
     app.run(debug=False, port=5001, host='0.0.0.0', threaded=True)
