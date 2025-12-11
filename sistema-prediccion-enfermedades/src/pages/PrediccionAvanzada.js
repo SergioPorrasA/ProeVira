@@ -24,6 +24,12 @@ const PrediccionAvanzada = () => {
     const [guardando, setGuardando] = useState(false);
     const [mensajeGuardado, setMensajeGuardado] = useState(null);
 
+    const calcSmape = (pred, real) => {
+        const denom = (Math.abs(pred) + Math.abs(real)) / 2;
+        if (denom === 0) return 0;
+        return Math.abs(pred - real) / denom * 100;
+    };
+
     // Cargar regiones
     useEffect(() => {
         const cargarRegiones = async () => {
@@ -119,14 +125,15 @@ const PrediccionAvanzada = () => {
                         const real = r.validacion.casos_reales;
                         return {
                             error_absoluto: Math.abs(predicho - real),
-                            error_porcentual: real > 0 ? Math.abs((predicho - real) / real) * 100 : 0,
+                            error_porcentual: real >= 5 ? calcSmape(predicho || 0, real || 0) : null,
                             predicho,
                             real
                         };
                     });
 
                     const mae = errores.reduce((sum, e) => sum + e.error_absoluto, 0) / errores.length;
-                    const mape = errores.reduce((sum, e) => sum + e.error_porcentual, 0) / errores.length;
+                    const mapeValores = errores.map(e => e.error_porcentual).filter(v => v !== null);
+                    const mape = mapeValores.length ? mapeValores.reduce((sum, v) => sum + v, 0) / mapeValores.length : 0;
                     const rmse = Math.sqrt(errores.reduce((sum, e) => sum + Math.pow(e.error_absoluto, 2), 0) / errores.length);
 
                     // Calcular R² (coeficiente de determinación)
@@ -707,8 +714,10 @@ const PrediccionAvanzada = () => {
                                     const casosEstimados = pred.prediccion?.casos_proxima_semana || pred.datos_utilizados?.casos_ultima_semana;
                                     const casosReales = pred.validacion?.casos_reales;
                                     const diferencia = casosReales !== undefined ? casosEstimados - casosReales : null;
-                                    const errorPct = casosReales > 0 ? Math.abs((diferencia / casosReales) * 100) : null;
-
+                                    const errorPct = (casosReales !== undefined && casosReales >= 5)
+                                        ? calcSmape(casosEstimados || 0, casosReales || 0)
+                                        : null;
+                                    
                                     return (
                                         <tr key={idx} className="hover:bg-gray-50">
                                             <td className="px-4 py-3 font-medium">{pred.semana}</td>
