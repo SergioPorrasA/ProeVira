@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Brain, Upload, TrendingUp, Activity, CheckCircle, 
+  Brain, Upload, TrendingUp, Activity, CheckCircle,
   XCircle, AlertTriangle, RefreshCw, FileText, Zap,
   BarChart3, Target, Database, Settings
 } from 'lucide-react';
@@ -17,7 +17,7 @@ const EntrenamientoModelos = () => {
   const [entrenando, setEntrenando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null);
-  
+
   const [formData, setFormData] = useState({
     tipo_modelo: 'clasificador',
     archivo_csv: ''
@@ -31,19 +31,19 @@ const EntrenamientoModelos = () => {
   const cargarInformacion = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch(`${API_URL}/modelos/info`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
       });
-      
+
       if (!response.ok) {
         throw new Error(`Error HTTP: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setModelosInfo(data.modelos);
         setArchivosCSV(data.archivos_csv || []);
@@ -64,29 +64,29 @@ const EntrenamientoModelos = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.archivo_csv) {
       setError('Debe seleccionar un archivo CSV');
       return;
     }
-    
+
     setEntrenando(true);
     setResultado(null);
     setError(null);
-    
+
     try {
       const response = await fetch(`${API_URL}/modelos/entrenar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-      
+
       if (!response.ok) {
         throw new Error(`Error HTTP: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setResultado(data);
         setError(null);
@@ -115,40 +115,44 @@ const EntrenamientoModelos = () => {
   // Componente de estado del modelo
   const EstadoModelo = ({ tipo, info }) => {
     const estaActivo = info.cargado && info.existe;
-    
+
     return (
-      <div className={`border-2 rounded-xl p-6 ${
-        estaActivo 
-          ? 'bg-green-50 border-green-200' 
-          : 'bg-gray-50 border-gray-200'
+      <div className={`border-2 rounded-xl p-6 shadow-lg transition-all hover:shadow-xl ${
+        estaActivo
+          ? 'bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-300'
+          : 'bg-gradient-to-br from-slate-50 to-slate-100 border-slate-300'
       }`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <Brain className={`w-8 h-8 ${estaActivo ? 'text-green-600' : 'text-gray-400'}`} />
+            <div className={`p-3 rounded-xl ${estaActivo ? 'bg-blue-100' : 'bg-slate-200'}`}>
+              <Brain className={`w-8 h-8 ${estaActivo ? 'text-blue-600' : 'text-slate-400'}`} />
+            </div>
             <div>
               <h3 className="text-lg font-bold text-gray-800">
                 Modelo {tipo === 'clasificador' ? 'Clasificador' : 'Regresor'}
               </h3>
-              <p className="text-sm text-gray-600">{info.archivo}</p>
+              <p className="text-sm text-gray-500">{info.archivo}</p>
             </div>
           </div>
-          {estaActivo ? (
-            <CheckCircle className="w-6 h-6 text-green-600" />
-          ) : (
-            <XCircle className="w-6 h-6 text-gray-400" />
-          )}
+          <div className={`p-2 rounded-full ${estaActivo ? 'bg-blue-100' : 'bg-slate-200'}`}>
+            {estaActivo ? (
+              <CheckCircle className="w-6 h-6 text-blue-600" />
+            ) : (
+              <XCircle className="w-6 h-6 text-slate-400" />
+            )}
+          </div>
         </div>
-        
+
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <span className="text-gray-600">Estado:</span>
-            <span className={`ml-2 font-bold ${estaActivo ? 'text-green-700' : 'text-gray-500'}`}>
+            <span className={`ml-2 font-bold ${estaActivo ? 'text-blue-700' : 'text-slate-500'}`}>
               {estaActivo ? 'Activo' : 'No cargado'}
             </span>
           </div>
           <div>
             <span className="text-gray-600">Archivo existe:</span>
-            <span className={`ml-2 font-bold ${info.existe ? 'text-green-700' : 'text-red-600'}`}>
+            <span className={`ml-2 font-bold ${info.existe ? 'text-blue-700' : 'text-red-600'}`}>
               {info.existe ? 'Sí' : 'No'}
             </span>
           </div>
@@ -195,25 +199,46 @@ const EntrenamientoModelos = () => {
   }
 
   return (
-    <div className="flex-1 p-8 overflow-auto bg-gradient-to-br from-gray-50 to-purple-50">
+    <div className="flex-1 p-8 overflow-auto bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-black text-gray-800 mb-2">
-          <Brain className="inline-block w-10 h-10 mr-3 text-primary" />
-          Entrenamiento de Modelos ML
-        </h1>
-        <p className="text-gray-600">
-          Entrena o re-entrena modelos de Machine Learning con tus propios datos
-        </p>
+      <div className="mb-8 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-8 rounded-2xl text-white shadow-2xl">
+        <div className="flex items-center gap-6">
+          <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+            <Brain className="w-12 h-12 text-white" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black mb-2">
+              Entrenamiento de Modelos ML
+            </h1>
+            <p className="text-blue-100 text-lg">
+              <strong>Entrena</strong> o <strong>re-entrena</strong> modelos de Machine Learning con tus propios datos
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <span className="px-4 py-2 bg-white/20 rounded-xl text-sm font-bold flex items-center gap-2">
+            <Target className="w-4 h-4" /> <strong>Random Forest</strong>
+          </span>
+          <span className="px-4 py-2 bg-white/20 rounded-xl text-sm font-bold flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" /> <strong>Clasificación y Regresión</strong>
+          </span>
+          <span className="px-4 py-2 bg-white/20 rounded-xl text-sm font-bold flex items-center gap-2">
+            <Database className="w-4 h-4" /> <strong>Datos CSV</strong>
+          </span>
+        </div>
       </div>
 
       {/* Estado Actual de los Modelos */}
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-          <Activity className="w-6 h-6 text-blue-500" />
-          Estado Actual de los Modelos
-        </h2>
-        
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg">
+            <Activity className="w-6 h-6 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">
+            Estado Actual de los Modelos
+          </h2>
+        </div>
+
         {modelosInfo && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <EstadoModelo tipo="clasificador" info={modelosInfo.clasificador} />
@@ -223,39 +248,43 @@ const EntrenamientoModelos = () => {
       </div>
 
       {/* Formulario de Entrenamiento */}
-      <div className="bg-white rounded-xl p-8 shadow-lg border border-gray-200 mb-8">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-          <Zap className="w-6 h-6 text-orange-500" />
-          Entrenar Nuevo Modelo
-        </h2>
+      <div className="bg-white rounded-xl p-8 shadow-xl border-2 border-blue-100 mb-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg">
+            <Zap className="w-6 h-6 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">
+            Entrenar Nuevo Modelo
+          </h2>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Tipo de Modelo */}
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2">
-              <Settings className="inline-block w-4 h-4 mr-2" />
+              <Settings className="inline-block w-4 h-4 mr-2 text-blue-500" />
               Tipo de Modelo
             </label>
             <select
               name="tipo_modelo"
               value={formData.tipo_modelo}
               onChange={handleChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-primary focus:outline-none text-gray-800 font-medium"
+              className="w-full px-4 py-3 border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none text-gray-800 font-medium bg-gradient-to-r from-white to-blue-50"
             >
               <option value="clasificador">🎯 Clasificador (Nivel de Riesgo)</option>
               <option value="regresor">📈 Regresor (Número de Casos)</option>
             </select>
-            
-            <div className="mt-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+
+            <div className="mt-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
               <p className="text-sm text-blue-800">
                 {formData.tipo_modelo === 'clasificador' ? (
                   <>
-                    <strong>Clasificador:</strong> Predice el nivel de riesgo (Bajo, Medio, Alto, Crítico) 
+                    <strong>Clasificador:</strong> Predice el nivel de riesgo (Bajo, Medio, Alto, Crítico)
                     basado en las tasas de incidencia y características temporales.
                   </>
                 ) : (
                   <>
-                    <strong>Regresor:</strong> Predice el número exacto de casos esperados basado en 
+                    <strong>Regresor:</strong> Predice el número exacto de casos esperados basado en
                     datos históricos y patrones estacionales.
                   </>
                 )}
@@ -266,14 +295,14 @@ const EntrenamientoModelos = () => {
           {/* Archivo CSV */}
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2">
-              <Database className="inline-block w-4 h-4 mr-2" />
+              <Database className="inline-block w-4 h-4 mr-2 text-blue-500" />
               Archivo CSV de Entrenamiento
             </label>
             <select
               name="archivo_csv"
               value={formData.archivo_csv}
               onChange={handleChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-primary focus:outline-none text-gray-800 font-medium"
+              className="w-full px-4 py-3 border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none text-gray-800 font-medium bg-gradient-to-r from-white to-blue-50"
               required
             >
               <option value="">-- Seleccionar archivo CSV --</option>
@@ -316,10 +345,10 @@ const EntrenamientoModelos = () => {
           <button
             type="submit"
             disabled={entrenando || !formData.archivo_csv}
-            className={`w-full py-4 rounded-lg font-bold text-white text-lg flex items-center justify-center gap-3 transition ${
+            className={`w-full py-4 rounded-xl font-bold text-white text-lg flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] ${
               entrenando || !formData.archivo_csv
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600'
+                ? 'bg-gradient-to-r from-blue-300 to-indigo-300 cursor-not-allowed'
+                : 'bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:via-blue-800 hover:to-indigo-800'
             }`}
           >
             {entrenando ? (
@@ -357,7 +386,7 @@ const EntrenamientoModelos = () => {
                 <BarChart3 className="w-5 h-5 text-blue-500" />
                 Métricas del Modelo
               </h3>
-              
+
               {resultado.tipo_modelo === 'clasificador' && resultado.metricas && (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center p-3 bg-blue-50 rounded">
@@ -372,9 +401,9 @@ const EntrenamientoModelos = () => {
                       {(resultado.metricas.precision * 100).toFixed(1)}%
                     </span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded">
+                  <div className="flex justify-between items-center p-3 bg-amber-50 rounded">
                     <span className="text-gray-700 font-medium">Recall</span>
-                    <span className="text-2xl font-black text-purple-600">
+                    <span className="text-2xl font-black text-amber-600">
                       {(resultado.metricas.recall * 100).toFixed(1)}%
                     </span>
                   </div>
@@ -408,10 +437,10 @@ const EntrenamientoModelos = () => {
             {/* Datos */}
             <div className="bg-white rounded-lg p-6 border border-green-200">
               <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-500" />
+                <FileText className="w-5 h-5 text-blue-500" />
                 Información de Datos
               </h3>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Total de Registros:</span>
@@ -435,7 +464,7 @@ const EntrenamientoModelos = () => {
                   <span className="text-gray-600 block mb-2">Features:</span>
                   <div className="flex flex-wrap gap-2">
                     {resultado.datos.features.map((feat, idx) => (
-                      <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-mono">
+                      <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono">
                         {feat}
                       </span>
                     ))}
@@ -455,8 +484,8 @@ const EntrenamientoModelos = () => {
 
           <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
-              <strong>📌 Nota:</strong> El modelo ha sido entrenado y guardado exitosamente. 
-              El sistema ahora utilizará este modelo para realizar las predicciones. 
+              <strong>📌 Nota:</strong> El modelo ha sido entrenado y guardado exitosamente.
+              El sistema ahora utilizará este modelo para realizar las predicciones.
               Refresca la página de monitoreo para ver el modelo activo.
             </p>
           </div>
@@ -464,34 +493,44 @@ const EntrenamientoModelos = () => {
       )}
 
       {/* Información Adicional */}
-      <div className="mt-8 p-6 bg-white rounded-xl shadow-lg border border-gray-200">
-        <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-          <Target className="w-6 h-6 text-indigo-500" />
-          Requisitos de los Datos
-        </h3>
-        
+      <div className="mt-8 p-6 bg-gradient-to-r from-white to-slate-50 rounded-xl shadow-xl border-2 border-slate-200">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg">
+            <Target className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-800">
+            Requisitos de los Datos
+          </h3>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <h4 className="font-bold text-gray-700 mb-2">Para Modelo Clasificador:</h4>
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
+              <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+              Para Modelo Clasificador:
+            </h4>
             <ul className="space-y-2 text-sm text-gray-600">
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">TI_LAG_1W</code> - Tasa de incidencia semana anterior</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">TI_LAG_4W</code> - Tasa de incidencia 4 semanas atrás</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">SEMANA_DEL_ANIO</code> - Número de semana (1-52)</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">MES</code> - Mes del año (1-12)</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">ENTIDAD_FED</code> - Nombre del estado</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">NIVEL_RIESGO</code> - Target (bajo/medio/alto/crítico)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">TI_LAG_1W</code> - Tasa de incidencia semana anterior</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">TI_LAG_4W</code> - Tasa de incidencia 4 semanas atrás</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">SEMANA_DEL_ANIO</code> - Número de semana (1-52)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">MES</code> - Mes del año (1-12)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">ENTIDAD_FED</code> - Nombre del estado</li>
+              <li>• <code className="bg-green-100 text-green-700 px-2 py-1 rounded font-mono">NIVEL_RIESGO</code> - Target (bajo/medio/alto/crítico)</li>
             </ul>
           </div>
-          
-          <div>
-            <h4 className="font-bold text-gray-700 mb-2">Para Modelo Regresor:</h4>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+              <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
+              Para Modelo Regresor:
+            </h4>
             <ul className="space-y-2 text-sm text-gray-600">
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">TI_LAG_1W</code> - Tasa de incidencia semana anterior</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">TI_LAG_4W</code> - Tasa de incidencia 4 semanas atrás</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">SEMANA_DEL_ANIO</code> - Número de semana (1-52)</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">MES</code> - Mes del año (1-12)</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">ENTIDAD_FED</code> - Nombre del estado</li>
-              <li>• <code className="bg-gray-100 px-2 py-1 rounded">casos_confirmados</code> - Target (número de casos)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">TI_LAG_1W</code> - Tasa de incidencia semana anterior</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">TI_LAG_4W</code> - Tasa de incidencia 4 semanas atrás</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">SEMANA_DEL_ANIO</code> - Número de semana (1-52)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">MES</code> - Mes del año (1-12)</li>
+              <li>• <code className="bg-slate-100 text-slate-700 px-2 py-1 rounded font-mono">ENTIDAD_FED</code> - Nombre del estado</li>
+              <li>• <code className="bg-green-100 text-green-700 px-2 py-1 rounded font-mono">casos_confirmados</code> - Target (número de casos)</li>
             </ul>
           </div>
         </div>
