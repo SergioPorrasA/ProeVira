@@ -251,7 +251,7 @@ const PrediccionAvanzada = () => {
             {/* ═══════════════════════════════════════════════════════════════
                 HEADER PRINCIPAL - Con mejor simbología y negritas
             ═══════════════════════════════════════════════════════════════ */}
-            <div className="mb-8 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-800 p-8 rounded-2xl text-white shadow-2xl">
+            <div className="mb-8 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-8 rounded-2xl text-white shadow-2xl">
                 <div className="flex items-center gap-6">
                     <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
                         <span className="text-5xl">🔮</span>
@@ -260,7 +260,7 @@ const PrediccionAvanzada = () => {
                         <h1 className="text-3xl font-black mb-2">
                             Predicción Avanzada de Dengue
                         </h1>
-                        <p className="text-indigo-100 text-lg">
+                        <p className="text-blue-100 text-lg">
                             <strong>Genera predicciones</strong> para un período específico y <strong>compara con datos reales</strong> para evaluar la precisión del modelo.
                         </p>
                     </div>
@@ -282,9 +282,9 @@ const PrediccionAvanzada = () => {
             {/* ═══════════════════════════════════════════════════════════════
                 FORMULARIO DE CONFIGURACIÓN
             ═══════════════════════════════════════════════════════════════ */}
-            <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-xl mb-8">
+            <div className="bg-white p-6 rounded-2xl border-2 border-blue-100 shadow-xl mb-8">
                 <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-gray-800">
-                    <span className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <span className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
                         <span className="text-xl">⚙️</span>
                     </span>
                     <span>Configuración de <strong>Predicción</strong></span>
@@ -303,7 +303,7 @@ const PrediccionAvanzada = () => {
                                 onChange={handleChange}
                                 required
                                 disabled={loadingRegiones}
-                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium transition-all"
+                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
                             >
                                 <option value="">
                                     {loadingRegiones ? '⏳ Cargando...' : '-- Seleccione --'}
@@ -325,9 +325,9 @@ const PrediccionAvanzada = () => {
                                 value={formData.fecha_inicio}
                                 onChange={handleChange}
                                 required
-                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium transition-all"
+                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
                             />
-                            <p className="text-xs text-indigo-600 mt-1 font-medium">
+                            <p className="text-xs text-blue-600 mt-1 font-medium">
                                 💡 Usa fechas <strong>pasadas</strong> para validar
                             </p>
                         </div>
@@ -341,7 +341,7 @@ const PrediccionAvanzada = () => {
                                 name="semanas_prediccion"
                                 value={formData.semanas_prediccion}
                                 onChange={handleChange}
-                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium transition-all"
+                                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
                             >
                                 <option value="1">1 semana</option>
                                 <option value="2">2 semanas</option>
@@ -373,7 +373,7 @@ const PrediccionAvanzada = () => {
                     <button
                         type="submit"
                         disabled={loading || loadingRegiones}
-                        className="mt-6 px-10 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black text-lg rounded-xl hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3"
+                        className="mt-6 px-10 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-lg rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3"
                     >
                         {loading ? (
                             <>
@@ -402,34 +402,34 @@ const PrediccionAvanzada = () => {
 
             {/* Métricas de Validación */}
             {metricsValidacion && (
-                <div className="mb-8 bg-gradient-to-r from-emerald-500 to-teal-600 p-6 rounded-xl text-white shadow-xl">
+                <div className="mb-8 bg-gradient-to-r from-blue-500 to-indigo-600 p-6 rounded-xl text-white shadow-xl">
                     <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                         ✅ Validación del Modelo vs Datos Reales
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.registros_validados}</p>
-                            <p className="text-emerald-100 text-sm">Semanas Validadas</p>
+                            <p className="text-blue-100 text-sm">Semanas Validadas</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.precision_general}%</p>
-                            <p className="text-emerald-100 text-sm">Precisión Casos</p>
+                            <p className="text-blue-100 text-sm">Precisión Casos</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.mae}</p>
-                            <p className="text-emerald-100 text-sm">MAE (Error Abs.)</p>
+                            <p className="text-blue-100 text-sm">MAE (Error Abs.)</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.mape}%</p>
-                            <p className="text-emerald-100 text-sm">MAPE (Error %)</p>
+                            <p className="text-blue-100 text-sm">MAPE (Error %)</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.rmse}</p>
-                            <p className="text-emerald-100 text-sm">RMSE</p>
+                            <p className="text-blue-100 text-sm">RMSE</p>
                         </div>
                         <div className="bg-white/20 p-4 rounded-xl text-center">
                             <p className="text-3xl font-bold">{metricsValidacion.r2}%</p>
-                            <p className="text-emerald-100 text-sm">R² (Ajuste)</p>
+                            <p className="text-blue-100 text-sm">R² (Ajuste)</p>
                         </div>
                     </div>
                     <div className="mt-4 p-3 bg-white/10 rounded-lg">
@@ -609,7 +609,7 @@ const PrediccionAvanzada = () => {
                     </div>
 
                     {/* Información del modelo */}
-                    <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 rounded-xl text-white shadow-lg mb-6">
+                    <div className="bg-gradient-to-r from-blue-500 to-indigo-500 p-6 rounded-xl text-white shadow-lg mb-6">
                         <h3 className="text-lg font-bold mb-4">Información del Modelo</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
@@ -694,7 +694,7 @@ const PrediccionAvanzada = () => {
                                     <th className="px-4 py-3 text-center text-sm font-semibold text-gray-600 bg-green-50">
                                         Casos Reales
                                     </th>
-                                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-600 bg-purple-50">
+                                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-600 bg-amber-50">
                                         Δ Diferencia
                                     </th>
                                     <th className="px-4 py-3 text-center text-sm font-semibold text-gray-600">Error %</th>
