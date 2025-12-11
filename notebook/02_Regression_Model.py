@@ -11,7 +11,16 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
+import sys
 import os
+
+# Agregar directorio backend al path para importar db_config
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.join(current_dir, '..', 'backend')
+sys.path.append(backend_dir)
+
+from db_config import get_db_connection
+
 
 print("=" * 60)
 print("🔬 ENTRENAMIENTO DE MODELO DE REGRESIÓN")
@@ -23,14 +32,9 @@ print("=" * 60)
 # ============================================
 print("\n📊 Conectando a la base de datos...")
 
-conn = mysql.connector.connect(
-    host='127.0.0.1',
-    user='root',
-    password='admin',
-    database='proyecto_integrador'
-)
+conn = get_db_connection()
 
-# Obtener todos los datos epidemiológicos
+# Obtener datos epidemiológicos SOLO de 2021 en adelante (datos semanales reales)
 query = """
 SELECT 
     d.id_region,
@@ -44,6 +48,7 @@ SELECT
     YEAR(d.fecha_fin_semana) as anio
 FROM dato_epidemiologico d
 JOIN region r ON d.id_region = r.id_region
+WHERE YEAR(d.fecha_fin_semana) >= 2021
 ORDER BY d.id_region, d.fecha_fin_semana
 """
 

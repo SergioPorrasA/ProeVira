@@ -159,50 +159,75 @@ def predecir_riesgo():
                 'error': f'No hay datos históricos para {nombre_estado}'
             }), 404
 
-        # 3. Obtener casos de la última semana (lag 1 semana)
+        # 3. Obtener las últimas 4 semanas de datos para calcular lags y estadísticas
         cursor.execute('''
-            SELECT COALESCE(SUM(casos_confirmados), 0) as total
+            SELECT casos_confirmados, tasa_incidencia, fecha_fin_semana
             FROM dato_epidemiologico
             WHERE id_region = %s
-              AND fecha_fin_semana BETWEEN DATE_SUB(%s, INTERVAL 7 DAY) AND %s
-        ''', (id_region, ultima_fecha, ultima_fecha))
-        casos_lag_1w = int(cursor.fetchone()['total'] or 0)
+            ORDER BY fecha_fin_semana DESC
+            LIMIT 4
+        ''', (id_region,))
+        registros_historicos = cursor.fetchall()
+        
+        # Rellenar con 0 si no hay suficientes datos
+        while len(registros_historicos) < 4:
+            registros_historicos.append({'casos_confirmados': 0, 'tasa_incidencia': 0})
 
-        # 4. Obtener casos de hace 4 semanas (lag 4 semanas)
-        cursor.execute('''
-            SELECT COALESCE(SUM(casos_confirmados), 0) as total
-            FROM dato_epidemiologico
-            WHERE id_region = %s
-              AND fecha_fin_semana BETWEEN DATE_SUB(%s, INTERVAL 28 DAY) AND DATE_SUB(%s, INTERVAL 21 DAY)
-        ''', (id_region, ultima_fecha, ultima_fecha))
-        casos_lag_4w = int(cursor.fetchone()['total'] or 0)
+        # Extraer valores (El índice 0 es el más reciente -> Lag 1)
+        casos_lag_1w = int(registros_historicos[0]['casos_confirmados'])
+        casos_lag_2w = int(registros_historicos[1]['casos_confirmados'])
+        casos_lag_3w = int(registros_historicos[2]['casos_confirmados'])
+        casos_lag_4w = int(registros_historicos[3]['casos_confirmados'])
+        
+        ti_lag_1w = float(registros_historicos[0]['tasa_incidencia'])
+        ti_lag_2w = float(registros_historicos[1]['tasa_incidencia'])
+        ti_lag_3w = float(registros_historicos[2]['tasa_incidencia'])
+        ti_lag_4w = float(registros_historicos[3]['tasa_incidencia'])
 
-        # 5. Calcular tasas de incidencia (por 100,000 habitantes)
-        ti_lag_1w = (casos_lag_1w / poblacion) * 100000
-        ti_lag_4w = (casos_lag_4w / poblacion) * 100000
+        # 4. Calcular features derivados
+        # Promedio 4 semanas
+        casos_promedio_4w = (casos_lag_1w + casos_lag_2w + casos_lag_3w + casos_lag_4w) / 4.0
+        
+        # Tendencia (Lag 1 - Lag 4)
+        tendencia_4w = casos_lag_1w - casos_lag_4w
+        
+        # Variación porcentual (Lag 1 vs Lag 2)
+        if casos_lag_2w == 0:
+            variacion_pct = 0.0
+        else:
+            variacion_pct = (casos_lag_1w - casos_lag_2w) / casos_lag_2w
 
-        # 6. Obtener semana y mes
-        semana_del_anio = ultima_fecha.isocalendar()[1]
-        mes = ultima_fecha.month
+        # 5. Obtener semana y mes de la PREDICCIÓN (Semana siguiente a la última fecha)
+        # Asumimos que predecimos para la semana entrante
+        fecha_prediccion = ultima_fecha + pd.Timedelta(weeks=1)
+        semana_anio = fecha_prediccion.isocalendar()[1]
+        mes = fecha_prediccion.month
 
-        # 7. Codificar el estado para el modelo
+        # 6. Codificar el estado para el modelo
         nombre_para_encoder = ESTADO_POR_ID.get(id_region, nombre_estado)
-
+        
         try:
-            entidad_coded = LABEL_ENCODER.transform([nombre_para_encoder])[0]
+            estado_coded = LABEL_ENCODER.transform([nombre_para_encoder])[0]
         except ValueError:
             print(f"⚠️ Estado '{nombre_para_encoder}' no en encoder, usando índice")
-            entidad_coded = id_region - 1
+            estado_coded = id_region - 1
 
-        # 8. Crear DataFrame para predicción
+        # 7. Crear DataFrame para predicción (Nombres EXACTOS como en el entrenamiento)
         X_predict = pd.DataFrame({
-            'TI_LAG_1W': [ti_lag_1w],
-            'TI_LAG_4W': [ti_lag_4w],
-            'CASOS_LAG_1W': [casos_lag_1w],
-            'CASOS_LAG_4W': [casos_lag_4w],
-            'SEMANA_DEL_ANIO': [semana_del_anio],
-            'MES': [mes],
-            'ENTIDAD_CODED': [entidad_coded]
+            'casos_lag_1w': [casos_lag_1w],
+            'casos_lag_2w': [casos_lag_2w],
+            'casos_lag_3w': [casos_lag_3w],
+            'casos_lag_4w': [casos_lag_4w],
+            'ti_lag_1w': [ti_lag_1w],
+            'ti_lag_2w': [ti_lag_2w],
+            'ti_lag_3w': [ti_lag_3w],
+            'ti_lag_4w': [ti_lag_4w],
+            'casos_promedio_4w': [casos_promedio_4w],
+            'tendencia_4w': [tendencia_4w],
+            'variacion_pct': [variacion_pct],
+            'semana_anio': [semana_anio],
+            'mes': [mes],
+            'estado_coded': [estado_coded]
         })
 
         print(f"📊 Predicción RF para {nombre_estado}: casos={casos_lag_1w}, TI={ti_lag_1w:.2f}")
@@ -289,8 +314,9 @@ def predecir_riesgo():
                 'tasa_incidencia_actual': round(ti_lag_1w, 2),
                 'tasa_incidencia_anterior': round(ti_lag_4w, 2),
                 'poblacion_region': poblacion,
-                'semana_epidemiologica': semana_del_anio,
-                'mes': mes
+                'semana_epidemiologica': semana_anio,
+                'mes': mes,
+                'tendencia_semanal': round(variacion_pct * 100, 1)
             },
             'tendencias': {
                 'casos': 'Creciente' if tendencia_casos > 0 else ('Decreciente' if tendencia_casos < 0 else 'Estable'),
@@ -427,6 +453,7 @@ def predecir_riesgo_avanzado():
         casos_lag_4w = casos_hist[3] if len(casos_hist) > 3 else casos_lag_1w
         ti_lag_1w = ti_hist[0] if len(ti_hist) > 0 else 0
         ti_lag_2w = ti_hist[1] if len(ti_hist) > 1 else ti_lag_1w
+        ti_lag_3w = ti_hist[2] if len(ti_hist) > 2 else ti_lag_1w
         ti_lag_4w = ti_hist[3] if len(ti_hist) > 3 else ti_lag_1w
 
         # Calcular features adicionales
@@ -480,14 +507,22 @@ def predecir_riesgo_avanzado():
             entidad_coded = id_region - 1
 
         # 9. DataFrame para predicciÃ³n de riesgo (clasificador)
+        # 9. DataFrame para predicción de riesgo (clasificador) - LOWERCASE y TODAS las columnas
         X_predict = pd.DataFrame({
-            'TI_LAG_1W': [ti_lag_1w_calc],
-            'TI_LAG_4W': [ti_lag_4w_calc],
-            'CASOS_LAG_1W': [casos_lag_1w],
-            'CASOS_LAG_4W': [casos_lag_4w],
-            'SEMANA_DEL_ANIO': [semana_del_anio],
-            'MES': [mes],
-            'ENTIDAD_CODED': [entidad_coded]
+            'casos_lag_1w': [casos_lag_1w],
+            'casos_lag_2w': [casos_lag_2w],
+            'casos_lag_3w': [casos_lag_3w],
+            'casos_lag_4w': [casos_lag_4w],
+            'ti_lag_1w': [ti_lag_1w_calc],
+            'ti_lag_2w': [ti_lag_2w],
+            'ti_lag_3w': [ti_lag_3w],
+            'ti_lag_4w': [ti_lag_4w_calc],
+            'casos_promedio_4w': [casos_promedio_4w],
+            'tendencia_4w': [tendencia_4w],
+            'variacion_pct': [(casos_lag_1w - casos_lag_2w)/casos_lag_2w if casos_lag_2w > 0 else 0],
+            'semana_anio': [semana_del_anio],
+            'mes': [mes],
+            'estado_coded': [entidad_coded]
         })
 
         # 10. PredicciÃ³n de RIESGO con Random Forest Clasificador
@@ -546,11 +581,12 @@ def predecir_riesgo_avanzado():
         # 17. MÃ©tricas del modelo (si se solicitan)
         metricas = None
         if incluir_metricas:
+            # Mantener métricas en escala 0-1 para consistencia con /health y el flujo de entrenamiento
             metricas = {
-                'accuracy': 85,
-                'precision': 82,
-                'recall': 88,
-                'f1_score': 85,
+                'accuracy': 0.85,
+                'precision': 0.82,
+                'recall': 0.88,
+                'f1_score': 0.85,
                 'auc_roc': 0.89
             }
 
@@ -2106,28 +2142,79 @@ def entrenar_modelo():
         df = pd.read_csv(csv_path)
         print(f"📊 Datos cargados: {len(df)} registros, {len(df.columns)} columnas")
 
+        # Normalizar nombres de columnas a minúsculas para alinear entrenamiento e inferencia
+        df.columns = [c.lower() for c in df.columns]
+        rename_map = {
+            'semana_del_anio': 'semana_anio',
+            'semana_epidemiologica': 'semana_anio',
+            'entidad': 'entidad_fed',
+            'riesgo_brote_target': 'nivel_riesgo_encoded',
+            'casos_semana_siguiente': 'casos_confirmados'
+        }
+        df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns}, inplace=True)
+
+        # Codificar entidad si viene como texto
+        if 'entidad_coded' not in df.columns and 'estado_coded' in df.columns:
+            df['entidad_coded'] = df['estado_coded']
+        if 'entidad_coded' not in df.columns and 'entidad_fed' in df.columns:
+            le_entidad = LabelEncoder()
+            df['entidad_coded'] = le_entidad.fit_transform(df['entidad_fed'])
+            LABEL_ENCODER = le_entidad
+            LABEL_ENCODER_REG = le_entidad
+            print(f"?? LabelEncoder creado con {len(le_entidad.classes_)} estados")
+
+        # Calcular features derivados si faltan y hay lags disponibles
+        lag_cols = ['casos_lag_1w', 'casos_lag_2w', 'casos_lag_3w', 'casos_lag_4w']
+        if all(col in df.columns for col in lag_cols):
+            if 'casos_promedio_4w' not in df.columns:
+                df['casos_promedio_4w'] = df[lag_cols].mean(axis=1)
+            if 'tendencia_4w' not in df.columns:
+                df['tendencia_4w'] = df['casos_lag_1w'] - df['casos_lag_4w']
+            if 'variacion_pct' not in df.columns:
+                df['variacion_pct'] = df.apply(
+                    lambda r: ((r['casos_lag_1w'] - r['casos_lag_2w']) / r['casos_lag_2w']) if r['casos_lag_2w'] != 0 else 0,
+                    axis=1
+                )
+
         if tipo_modelo == 'clasificador':
-            # Entrenar modelo clasificador
-            required_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES']
-
-            # Verificar si necesitamos codificar la entidad
-            if 'ENTIDAD_FED' in df.columns and 'ENTIDAD_CODED' not in df.columns:
-                le_entidad = LabelEncoder()
-                df['ENTIDAD_CODED'] = le_entidad.fit_transform(df['ENTIDAD_FED'])
-                LABEL_ENCODER = le_entidad
-                print(f"✔️ LabelEncoder creado con {len(le_entidad.classes_)} estados")
-
-            # Verificar target
+            # Entrenar modelo clasificador (features en min?sculas para coincidir con inferencia)
             if 'NIVEL_RIESGO' in df.columns:
-                riesgo_map = {'bajo': 0, 'medio': 1, 'alto': 2, 'critico': 3, 'crÃ­tico': 3}
-                df['NIVEL_RIESGO_ENCODED'] = df['NIVEL_RIESGO'].str.lower().map(riesgo_map)
+                riesgo_map = {'bajo': 0, 'medio': 1, 'alto': 2, 'critico': 3, 'cr?tico': 3}
+                df['nivel_riesgo_encoded'] = df['NIVEL_RIESGO'].str.lower().map(riesgo_map)
+            if 'nivel_riesgo' in df.columns and 'nivel_riesgo_encoded' not in df.columns:
+                riesgo_map = {'bajo': 0, 'medio': 1, 'alto': 2, 'critico': 3, 'cr?tico': 3}
+                df['nivel_riesgo_encoded'] = df['nivel_riesgo'].str.lower().map(riesgo_map)
+            if 'nivel_riesgo_encoded' not in df.columns:
+                return jsonify({
+                    'success': False,
+                    'error': 'No se encontr? la columna objetivo nivel_riesgo_encoded'
+                }), 400
 
-            # Preparar datos
-            feature_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES', 'ENTIDAD_CODED']
-            feature_cols = [col for col in feature_cols if col in df.columns]
+            if 'estado_coded' not in df.columns and 'entidad_coded' in df.columns:
+                df['estado_coded'] = df['entidad_coded']
+
+            # Si no hay LabelEncoder pero tenemos nombres de entidad, ajustarlo para mantenerlo en disco
+            if LABEL_ENCODER is None and 'entidad_fed' in df.columns:
+                le_entidad = LabelEncoder()
+                df['estado_coded'] = le_entidad.fit_transform(df['entidad_fed'])
+                LABEL_ENCODER = le_entidad
+
+            clf_feature_pool = [
+                'casos_lag_1w', 'casos_lag_2w', 'casos_lag_3w', 'casos_lag_4w',
+                'ti_lag_1w', 'ti_lag_2w', 'ti_lag_3w', 'ti_lag_4w',
+                'casos_promedio_4w', 'tendencia_4w', 'variacion_pct',
+                'semana_anio', 'mes', 'estado_coded'
+            ]
+            feature_cols = [col for col in clf_feature_pool if col in df.columns]
+
+            if len(feature_cols) < 4:
+                return jsonify({
+                    'success': False,
+                    'error': f'No hay suficientes columnas de features para el clasificador. Encontradas: {feature_cols}'
+                }), 400
 
             X = df[feature_cols]
-            y = df['NIVEL_RIESGO_ENCODED']
+            y = df['nivel_riesgo_encoded']
 
             # Dividir datos
             X_train, X_test, y_train, y_test = train_test_split(
@@ -2188,21 +2275,42 @@ def entrenar_modelo():
             }), 200
 
         elif tipo_modelo == 'regresor':
-            # Entrenar modelo regresor
-            required_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES']
-
-            # Verificar si necesitamos codificar la entidad
-            if 'ENTIDAD_FED' in df.columns and 'ENTIDAD_CODED' not in df.columns:
+            # Entrenar modelo regresor (features en min?sculas para coincidir con inferencia)
+            if 'entidad_coded' not in df.columns and 'estado_coded' in df.columns:
+                df['entidad_coded'] = df['estado_coded']
+            elif 'entidad_coded' not in df.columns and 'entidad_fed' in df.columns:
                 le_entidad = LabelEncoder()
-                df['ENTIDAD_CODED'] = le_entidad.fit_transform(df['ENTIDAD_FED'])
+                df['entidad_coded'] = le_entidad.fit_transform(df['entidad_fed'])
+                LABEL_ENCODER_REG = le_entidad
+
+            if LABEL_ENCODER_REG is None and 'entidad_fed' in df.columns and 'entidad_coded' in df.columns:
+                le_entidad = LabelEncoder()
+                df['entidad_coded'] = le_entidad.fit_transform(df['entidad_fed'])
                 LABEL_ENCODER_REG = le_entidad
 
             # Preparar datos
-            feature_cols = ['TI_LAG_1W', 'TI_LAG_4W', 'SEMANA_DEL_ANIO', 'MES', 'ENTIDAD_CODED']
-            feature_cols = [col for col in feature_cols if col in df.columns]
+            if 'estado_coded' not in df.columns and 'entidad_coded' in df.columns:
+                df['estado_coded'] = df['entidad_coded']
+            reg_feature_pool = [
+                'casos_lag_1w', 'casos_lag_2w', 'casos_lag_3w', 'casos_lag_4w',
+                'ti_lag_1w', 'ti_lag_2w',
+                'casos_promedio_4w', 'tendencia_4w',
+                'semana_anio', 'mes', 'estado_coded'
+            ]
+            feature_cols = [col for col in reg_feature_pool if col in df.columns]
 
-            # Target: casos confirmados
-            target_col = 'casos_confirmados' if 'casos_confirmados' in df.columns else 'CASOS_CONFIRMADOS'
+            if len(feature_cols) < 4:
+                return jsonify({
+                    'success': False,
+                    'error': f'No hay suficientes columnas de features para el regresor. Encontradas: {feature_cols}'
+                }), 400
+
+            target_col = 'casos_confirmados' if 'casos_confirmados' in df.columns else None
+            if target_col is None:
+                return jsonify({
+                    'success': False,
+                    'error': 'No se encontr? la columna casos_confirmados para el regresor'
+                }), 400
 
             X = df[feature_cols]
             y = df[target_col]
