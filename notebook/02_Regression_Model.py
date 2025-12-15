@@ -1,221 +1,177 @@
-# ============================================
-# Modelo de Regresión para Predicción de Casos de Dengue
-# Random Forest Regressor
-# ============================================
-
-import pandas as pd
-import numpy as np
-import mysql.connector
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import joblib
-import sys
 import os
+from pathlib import Path
 
-# Agregar directorio backend al path para importar db_config
-current_dir = os.path.dirname(os.path.abspath(__file__))
-backend_dir = os.path.join(current_dir, '..', 'backend')
-sys.path.append(backend_dir)
-
-from db_config import get_db_connection
-
-
-print("=" * 60)
-print("🔬 ENTRENAMIENTO DE MODELO DE REGRESIÓN")
-print("   Predicción de Cantidad de Casos de Dengue")
-print("=" * 60)
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 # ============================================
-# 1. CONEXIÓN A BASE DE DATOS
+# Configuracion de rutas
 # ============================================
-print("\n📊 Conectando a la base de datos...")
+BASE_DIR = Path(__file__).resolve().parents[2]
+DATA_PATH = BASE_DIR / "Conversor_PDF_CSV" / "dengue_master_dataset.csv"
+BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
 
-conn = get_db_connection()
 
-# Obtener datos epidemiológicos SOLO de 2021 en adelante (datos semanales reales)
-query = """
-SELECT 
-    d.id_region,
-    r.nombre as estado,
-    r.poblacion,
-    d.fecha_fin_semana,
-    d.casos_confirmados,
-    d.tasa_incidencia,
-    WEEK(d.fecha_fin_semana) as semana_anio,
-    MONTH(d.fecha_fin_semana) as mes,
-    YEAR(d.fecha_fin_semana) as anio
-FROM dato_epidemiologico d
-JOIN region r ON d.id_region = r.id_region
-WHERE YEAR(d.fecha_fin_semana) >= 2021
-ORDER BY d.id_region, d.fecha_fin_semana
-"""
+def temporal_split(df, feature_cols, target_col, region_col="id_region", date_col="fecha", test_size=0.2):
+    """Split temporal por estado (evita usar semanas futuras en train)."""
+    train_parts, test_parts = [], []
+    for _, g in df.groupby(region_col):
+        g_sorted = g.sort_values(date_col)
+        if len(g_sorted) < 5:
+            continue
+        split_idx = int(len(g_sorted) * (1 - test_size))
+        split_idx = max(1, min(split_idx, len(g_sorted) - 1))
+        train_parts.append(g_sorted.iloc[:split_idx])
+        test_parts.append(g_sorted.iloc[split_idx:])
 
-df = pd.read_sql(query, conn)
-conn.close()
+    if not train_parts or not test_parts:
+        raise ValueError("No hay suficientes datos para dividir train/test de manera temporal.")
 
-print(f"✅ Datos cargados: {len(df)} registros")
-print(f"   Estados: {df['estado'].nunique()}")
-print(f"   Período: {df['fecha_fin_semana'].min()} a {df['fecha_fin_semana'].max()}")
+    train_df = pd.concat(train_parts)
+    test_df = pd.concat(test_parts)
+    return (
+        train_df[feature_cols],
+        test_df[feature_cols],
+        train_df[target_col],
+        test_df[target_col],
+    )
 
-# ============================================
-# 2. INGENIERÍA DE FEATURES
-# ============================================
-print("\n🔧 Creando features para regresión...")
 
-# Ordenar por estado y fecha
-df = df.sort_values(['id_region', 'fecha_fin_semana']).reset_index(drop=True)
+def main():
+    print("=" * 60)
+    print("ENTRENAMIENTO MODELO DE REGRESION (CSV consolidado)")
+    print("Fuentes: dengue_master_dataset.csv (semanal por estado)")
+    print("=" * 60)
 
-# Crear features de lag (semanas anteriores)
-for lag in [1, 2, 3, 4]:
-    df[f'casos_lag_{lag}w'] = df.groupby('id_region')['casos_confirmados'].shift(lag)
-    df[f'ti_lag_{lag}w'] = df.groupby('id_region')['tasa_incidencia'].shift(lag)
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(f"No se encontro el CSV consolidado en {DATA_PATH}")
 
-# Promedio móvil de 4 semanas
-df['casos_promedio_4w'] = df.groupby('id_region')['casos_confirmados'].transform(
-    lambda x: x.rolling(window=4, min_periods=1).mean().shift(1)
-)
+    # --------------------------------------------
+    # 1. Cargar datos
+    # --------------------------------------------
+    df = pd.read_csv(DATA_PATH, parse_dates=["fecha"])
+    df = df.rename(columns={"casos": "casos_confirmados", "id_estado": "id_region"})
+    extras = sorted(set(df["id_region"].unique()) - set(range(1, 33)))
+    if extras:
+        print(f"[WARN] Se encontraron codigos de estado fuera de 1-32: {extras}. Se excluiran.")
+        df = df[df["id_region"].between(1, 32)]
+    df = df.sort_values(["id_region", "fecha"]).reset_index(drop=True)
 
-# Tendencia (diferencia entre semana actual y hace 4 semanas)
-df['tendencia_4w'] = df['casos_lag_1w'] - df['casos_lag_4w']
+    print(f"Registros: {len(df)}, Estados: {df['id_region'].nunique()}")
+    print(f"Periodo: {df['fecha'].min().date()} -> {df['fecha'].max().date()}")
 
-# Variación porcentual
-df['variacion_pct'] = df.groupby('id_region')['casos_confirmados'].pct_change().shift(1)
-df['variacion_pct'] = df['variacion_pct'].replace([np.inf, -np.inf], 0).fillna(0)
+    # --------------------------------------------
+    # 2. Ingenieria de features
+    # --------------------------------------------
+    for lag in [1, 2, 3, 4]:
+        df[f"casos_lag_{lag}w"] = df.groupby("id_region")["casos_confirmados"].shift(lag)
 
-# Codificar estado
-le = LabelEncoder()
-df['estado_coded'] = le.fit_transform(df['estado'])
+    df["casos_promedio_4w"] = (
+        df.groupby("id_region")["casos_confirmados"]
+        .transform(lambda x: x.rolling(window=4, min_periods=1).mean().shift(1))
+    )
+    df["tendencia_4w"] = df["casos_lag_1w"] - df["casos_lag_4w"]
+    df["semana_anio"] = df["fecha"].dt.isocalendar().week.astype(int)
+    df["mes"] = df["fecha"].dt.month
 
-# Guardar encoder
-encoder_path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'label_encoder_regressor.pkl')
-joblib.dump(le, encoder_path)
-print(f"✅ Label encoder guardado")
+    # Dummy de tasas para mantener compatibilidad de features con el backend
+    df["ti_lag_1w"] = 0.0
+    df["ti_lag_2w"] = 0.0
 
-# Eliminar filas con NaN (primeras semanas sin lag)
-df_clean = df.dropna()
-print(f"✅ Registros para entrenamiento: {len(df_clean)}")
+    # Codificar estado
+    le = LabelEncoder()
+    df["estado_coded"] = le.fit_transform(df["id_region"])
+    encoder_path = BACKEND_DIR / "label_encoder_regressor.pkl"
+    joblib.dump(le, encoder_path)
+    print(f"LabelEncoder guardado en {encoder_path}")
 
-# ============================================
-# 3. PREPARAR DATOS PARA ENTRENAMIENTO
-# ============================================
-print("\n📐 Preparando datos de entrenamiento...")
+    feature_cols = [
+        "casos_lag_1w",
+        "casos_lag_2w",
+        "casos_lag_3w",
+        "casos_lag_4w",
+        "ti_lag_1w",
+        "ti_lag_2w",
+        "casos_promedio_4w",
+        "tendencia_4w",
+        "semana_anio",
+        "mes",
+        "estado_coded",
+    ]
 
-# Features para el modelo
-feature_cols = [
-    'casos_lag_1w', 'casos_lag_2w', 'casos_lag_3w', 'casos_lag_4w',
-    'ti_lag_1w', 'ti_lag_2w',
-    'casos_promedio_4w', 'tendencia_4w',
-    'semana_anio', 'mes',
-    'estado_coded'
-]
+    df_clean = df.dropna(subset=feature_cols + ["casos_confirmados"])
+    print(f"Registros despues de limpiar NaN: {len(df_clean)}")
 
-X = df_clean[feature_cols]
-y = df_clean['casos_confirmados']  # Target: casos reales de esa semana
+    if df_clean["casos_confirmados"].sum() == 0:
+        raise ValueError("No hay casos distintos de cero en el dataset consolidado; revisar dengue_master_dataset.csv antes de entrenar el regressor.")
 
-print(f"   Features: {len(feature_cols)}")
-print(f"   Samples: {len(X)}")
+    # --------------------------------------------
+    # 3. Split temporal
+    # --------------------------------------------
+    X_train, X_test, y_train, y_test = temporal_split(
+        df_clean, feature_cols, "casos_confirmados", region_col="id_region", date_col="fecha"
+    )
+    print(f"Train: {len(X_train)}, Test: {len(X_test)}")
 
-# Split train/test
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+    # --------------------------------------------
+    # 4. Entrenar
+    # --------------------------------------------
+    model = RandomForestRegressor(
+        n_estimators=200,
+        max_depth=15,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        random_state=42,
+        n_jobs=-1,
+    )
+    model.fit(X_train, y_train)
+    print("Modelo entrenado.")
 
-print(f"   Train: {len(X_train)}, Test: {len(X_test)}")
+    # --------------------------------------------
+    # 5. Evaluar
+    # --------------------------------------------
+    y_pred = model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
 
-# ============================================
-# 4. ENTRENAR MODELO RANDOM FOREST REGRESSOR
-# ============================================
-print("\n🚀 Entrenando Random Forest Regressor...")
+    print("\n" + "=" * 50)
+    print("METRICAS (split temporal)")
+    print("=" * 50)
+    print(f"MAE : {mae:.2f}")
+    print(f"RMSE: {rmse:.2f}")
+    print(f"R2  : {r2:.4f} ({r2*100:.1f}%)")
 
-model = RandomForestRegressor(
-    n_estimators=200,
-    max_depth=15,
-    min_samples_split=5,
-    min_samples_leaf=2,
-    random_state=42,
-    n_jobs=-1
-)
+    # --------------------------------------------
+    # 6. Guardar modelo y features
+    # --------------------------------------------
+    model_path = BACKEND_DIR / "model_regressor.pkl"
+    features_path = BACKEND_DIR / "regressor_features.pkl"
+    joblib.dump(model, model_path)
+    joblib.dump(feature_cols, features_path)
+    print(f"Modelo guardado en {model_path}")
+    print(f"Features guardadas en {features_path}")
 
-model.fit(X_train, y_train)
-print("✅ Modelo entrenado")
+    # --------------------------------------------
+    # 7. Prueba rapida
+    # --------------------------------------------
+    print("\nPrueba rapida (ultimas filas por estado):")
+    for estado, grupo in df_clean.groupby("id_region"):
+        muestra = grupo.tail(1)
+        X_sample = muestra[feature_cols]
+        pred = model.predict(X_sample)[0]
+        real = float(muestra["casos_confirmados"].iloc[0])
+        print(f"Estado {estado}: pred={pred:.1f} real={real:.1f}")
 
-# ============================================
-# 5. EVALUAR MODELO
-# ============================================
-print("\n📊 Evaluando modelo...")
+    print("\n" + "=" * 60)
+    print("Entrenamiento de regresion completado.")
+    print("=" * 60)
 
-# Predicciones en test
-y_pred = model.predict(X_test)
 
-# Métricas
-mae = mean_absolute_error(y_test, y_pred)
-rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-r2 = r2_score(y_test, y_pred)
-
-# MAPE (evitando división por cero)
-mask = y_test > 0
-mape = np.mean(np.abs((y_test[mask] - y_pred[mask]) / y_test[mask])) * 100
-
-print("\n" + "=" * 50)
-print("📈 MÉTRICAS DEL MODELO DE REGRESIÓN")
-print("=" * 50)
-print(f"   MAE  (Error Absoluto Medio): {mae:.2f} casos")
-print(f"   RMSE (Raíz Error Cuadrático): {rmse:.2f} casos")
-print(f"   MAPE (Error Porcentual Medio): {mape:.1f}%")
-print(f"   R²   (Coeficiente Determinación): {r2:.4f} ({r2*100:.1f}%)")
-print(f"   Precisión estimada: {100 - mape:.1f}%")
-print("=" * 50)
-
-# Cross-validation
-cv_scores = cross_val_score(model, X, y, cv=5, scoring='r2')
-print(f"\n   Cross-Validation R² (5-fold): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
-
-# Feature importance
-print("\n📊 Importancia de Features:")
-importances = pd.DataFrame({
-    'feature': feature_cols,
-    'importance': model.feature_importances_
-}).sort_values('importance', ascending=False)
-
-for _, row in importances.iterrows():
-    bar = '█' * int(row['importance'] * 50)
-    print(f"   {row['feature']:20s} {row['importance']:.3f} {bar}")
-
-# ============================================
-# 6. GUARDAR MODELO
-# ============================================
-print("\n💾 Guardando modelo...")
-
-model_path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'model_regressor.pkl')
-joblib.dump(model, model_path)
-
-# Guardar también las columnas de features
-features_path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'regressor_features.pkl')
-joblib.dump(feature_cols, features_path)
-
-print(f"✅ Modelo guardado en: {model_path}")
-print(f"✅ Features guardadas en: {features_path}")
-
-# ============================================
-# 7. PRUEBA RÁPIDA
-# ============================================
-print("\n🧪 Prueba rápida con datos recientes...")
-
-# Tomar últimos registros de Guerrero para prueba
-test_samples = df_clean[df_clean['estado'] == 'Guerrero'].tail(5)
-
-for idx, row in test_samples.iterrows():
-    X_sample = row[feature_cols].values.reshape(1, -1)
-    pred = model.predict(X_sample)[0]
-    real = row['casos_confirmados']
-    error = abs(pred - real)
-    error_pct = (error / real * 100) if real > 0 else 0
-    
-    print(f"   {row['fecha_fin_semana']}: Predicho={pred:.0f}, Real={real}, Error={error_pct:.1f}%")
-
-print("\n" + "=" * 60)
-print("✅ MODELO DE REGRESIÓN ENTRENADO EXITOSAMENTE")
-print("   Ahora el sistema puede predecir cantidad de casos")
-print("=" * 60)
+if __name__ == "__main__":
+    main()

@@ -76,6 +76,8 @@ try:
     print("✔ Modelo Random Forest (Clasificador) cargado")
     print(f"   - Features esperados: {MODELO_DENGUE.n_features_in_}")
     print(f"   - Estados en encoder: {len(LABEL_ENCODER.classes_)}")
+    if len(getattr(MODELO_DENGUE, 'classes_', [])) == 1:
+        print("! Advertencia: el modelo clasificador solo contiene una clase; predict_proba devolvera una sola columna.")
 except Exception as e:
     print(f"❌ Error cargando modelo clasificador: {e}")
 # Cargar modelo de regresión para predicción de casos
@@ -100,6 +102,30 @@ def get_db_connection():
     if connection_pool:
         return connection_pool.get_connection()
     return None
+
+
+def get_positive_probability(model, X, positive_class=1):
+    """Obtiene la probabilidad de la clase positiva sin asumir dos columnas en predict_proba."""
+    proba = model.predict_proba(X)
+    proba = np.asarray(proba)
+
+    if proba.ndim == 1:
+        proba = proba.reshape(1, -1)
+
+    classes = list(getattr(model, 'classes_', []))
+
+    if proba.shape[1] == 1:
+        prob = float(proba[0][0])
+        if classes:
+            return prob if classes[0] == positive_class else 1.0 - prob
+        return prob
+
+    if classes and positive_class in classes:
+        idx = classes.index(positive_class)
+    else:
+        idx = proba.shape[1] - 1
+
+    return float(proba[0][idx])
 
 
 # ============================================
@@ -233,7 +259,7 @@ def predecir_riesgo():
         print(f"📊 Predicción RF para {nombre_estado}: casos={casos_lag_1w}, TI={ti_lag_1w:.2f}")
 
         # 9. PREDICCIÓN CON RANDOM FOREST
-        prediction_proba = MODELO_DENGUE.predict_proba(X_predict)[0][1]
+        prediction_proba = get_positive_probability(MODELO_DENGUE, X_predict)
         prediction_class = MODELO_DENGUE.predict(X_predict)[0]
 
         riesgo_probabilidad = round(prediction_proba * 100, 1)
@@ -526,7 +552,7 @@ def predecir_riesgo_avanzado():
         })
 
         # 10. PredicciÃ³n de RIESGO con Random Forest Clasificador
-        prediction_proba = MODELO_DENGUE.predict_proba(X_predict)[0][1]
+        prediction_proba = get_positive_probability(MODELO_DENGUE, X_predict)
         prediction_class = MODELO_DENGUE.predict(X_predict)[0]
 
         riesgo_probabilidad = round(prediction_proba * 100, 1)
@@ -1794,7 +1820,7 @@ def generar_alertas_automaticas():
                         'ENTIDAD_CODED': [entidad_coded]
                     })
 
-                    probabilidad = round(MODELO_DENGUE.predict_proba(X_predict)[0][1] * 100, 1)
+                    probabilidad = round(get_positive_probability(MODELO_DENGUE, X_predict) * 100, 1)
                 except Exception as e:
                     probabilidad = min(100, max(0, ti_actual * 2))
             else:
@@ -2153,6 +2179,55 @@ def entrenar_modelo():
         }
         df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns}, inplace=True)
 
+        # Helper para dividir train/test sin mezclar semanas futuras
+        def split_time_aware(df_split, feature_cols, target_col, stratify_target=False):
+            usable = df_split.dropna(subset=feature_cols + [target_col]).copy()
+
+            fecha_col = next(
+                (c for c in ['fecha_fin_semana', 'fecha', 'fecha_semana', 'semana_inicio', 'fecha_sintomas'] if c in usable.columns),
+                None
+            )
+            region_col = next(
+                (c for c in ['id_region', 'id_estado', 'estado', 'entidad', 'entidad_id'] if c in usable.columns),
+                None
+            )
+
+            # Split temporal (por estado si aplica) para evitar fuga de informaciωn al futuro
+            if fecha_col and len(usable) >= 10:
+                usable[fecha_col] = pd.to_datetime(usable[fecha_col], errors='coerce')
+                usable = usable.dropna(subset=[fecha_col])
+
+                grupos = [usable] if region_col is None else [g for _, g in usable.groupby(region_col)]
+                train_parts, test_parts = [], []
+
+                for g in grupos:
+                    if len(g) < 2:
+                        continue
+                    g_sorted = g.sort_values(fecha_col)
+                    split_idx = int(len(g_sorted) * 0.8)
+                    split_idx = max(1, min(split_idx, len(g_sorted) - 1))
+                    train_parts.append(g_sorted.iloc[:split_idx])
+                    test_parts.append(g_sorted.iloc[split_idx:])
+
+                if train_parts and test_parts:
+                    train_df = pd.concat(train_parts)
+                    test_df = pd.concat(test_parts)
+                    return (
+                        train_df[feature_cols],
+                        test_df[feature_cols],
+                        train_df[target_col],
+                        test_df[target_col]
+                    )
+
+            # Fallback aleatorio cuando no hay fecha
+            return train_test_split(
+                usable[feature_cols],
+                usable[target_col],
+                test_size=0.2,
+                random_state=42,
+                stratify=usable[target_col] if stratify_target else None
+            )
+
         # Codificar entidad si viene como texto
         if 'entidad_coded' not in df.columns and 'estado_coded' in df.columns:
             df['entidad_coded'] = df['estado_coded']
@@ -2213,12 +2288,9 @@ def entrenar_modelo():
                     'error': f'No hay suficientes columnas de features para el clasificador. Encontradas: {feature_cols}'
                 }), 400
 
-            X = df[feature_cols]
-            y = df['nivel_riesgo_encoded']
-
-            # Dividir datos
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y
+            # Dividir datos respetando la secuencia temporal (sin mezclar semanas futuras)
+            X_train, X_test, y_train, y_test = split_time_aware(
+                df, feature_cols, 'nivel_riesgo_encoded', stratify_target=True
             )
 
             # Entrenar modelo
@@ -2312,12 +2384,9 @@ def entrenar_modelo():
                     'error': 'No se encontr? la columna casos_confirmados para el regresor'
                 }), 400
 
-            X = df[feature_cols]
-            y = df[target_col]
-
-            # Dividir datos
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42
+            # Dividir datos respetando el tiempo para evitar fuga de futuro
+            X_train, X_test, y_train, y_test = split_time_aware(
+                df, feature_cols, target_col, stratify_target=False
             )
 
             # Entrenar modelo
