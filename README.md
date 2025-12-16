@@ -339,8 +339,14 @@ python prediccion_enfermedades_virales.py
 ## 👥 **Equipo de Desarrollo**
 
 Proyecto desarrollado en el **Instituto Tecnológico de Oaxaca**  
-Materia: Proyecto Integrador
-
+Materia: Gestion de Proyectos de Software
+Equipo:
+- Eduardo Solano Ramos
+- Jesús Abraham Mendoza Chávez 
+- Sergio Ezequiel Porras Avendaño
+- Cristian Gerardo Placido Martínez 
+- Luis Gael Crisanto Fernández 
+- Sabás Mijail Miranda Virgen
 ---
 
 ## 📄 **Licencia**
