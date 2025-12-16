@@ -345,7 +345,7 @@ Equipo:
 - Jesús Abraham Mendoza Chávez 
 - Sergio Ezequiel Porras Avendaño
 - Cristian Gerardo Placido Martínez 
-- Luis Gael Crisanto Fernández 
+- Luis Gael Fernandez Crisanto 
 - Sabás Mijail Miranda Virgen
 ---
 
